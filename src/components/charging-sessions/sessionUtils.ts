@@ -1,26 +1,82 @@
 import dayjs from "dayjs";
-import type { ChargingSession, Chargepoint } from "@/data/types";
+import type { ChargingSession, Chargepoint, Vehicle } from "@/data/types";
 
+// Formats copied from real ergOS session pages: "05/08/2026",
+// "05/08/2026, 08:41 pm", "2 hrs 48 mins 14s".
 export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return "N/A";
-  return dayjs(iso).format("DD MMM YYYY, hh:mm A");
+  return dayjs(iso).format("DD/MM/YYYY, hh:mm a");
 }
 
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "N/A";
-  return dayjs(iso).format("DD MMM YYYY");
+  return dayjs(iso).format("DD/MM/YYYY");
 }
 
-/** "2 hours 15 minutes" style duration, mirroring utils/misc getDurationString. */
 export function getDurationString(startIso: string, endIso: string): string {
   const seconds = Math.max(0, dayjs(endIso).diff(dayjs(startIso), "second"));
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
   let result = "";
-  if (hours > 0) result += `${hours} ${hours === 1 ? "hour" : "hours"} `;
-  if (minutes > 0) result += `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
-  if (result === "") return "0 minutes";
+  if (hours > 0) result += `${hours} hrs `;
+  if (minutes > 0) result += `${minutes} mins `;
+  result += `${secs}s`;
   return result.trim();
+}
+
+// ---- Deterministic stand-ins for backend fields the fixtures don't store,
+// shaped like the real values (e.g. transactionId 335015207, billingId
+// "sessionBilling_2Vu_VdZqgx", meter counters in Wh, VIN "MBX0007ZBZG119653").
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+export function sessionTransactionId(session: ChargingSession): number {
+  return 100_000_000 + (hashStr(session.id) % 900_000_000);
+}
+
+export function sessionBillingId(session: ChargingSession): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let h = hashStr(`${session.id}-billing`);
+  let slug = "";
+  for (let i = 0; i < 10; i += 1) {
+    slug += chars[h % chars.length];
+    h = Math.floor(h / chars.length) + i * 7;
+  }
+  return `sessionBilling_${slug}`;
+}
+
+/** Wh meter counters: stop − start equals the session's energy in Wh. */
+export function sessionMeterValues(session: ChargingSession): {
+  meterStart: number;
+  meterStop: number | null;
+} {
+  const meterStart = 1_400_000 + (hashStr(`${session.id}-meter`) % 200_000);
+  const meterStop = session.endTime
+    ? meterStart + Math.round(session.energyKwh * 1000)
+    : null;
+  return { meterStart, meterStop };
+}
+
+/** OCPP-style charge point identity like the real "3S_AC1" (from "CP-1, Six Mile"). */
+export function chargerOcppId(cp: Chargepoint | undefined): string | null {
+  if (!cp) return null;
+  const [unit, place] = cp.name.split(", ");
+  const initials = (place ?? cp.hub)
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+  const num = unit?.replace(/\D/g, "") || "1";
+  return `${initials}_AC${num}`;
+}
+
+export function vehicleVin(vehicle: Vehicle | undefined): string | null {
+  if (!vehicle) return null;
+  return `MBX0007ZBZG${String(100_000 + (hashStr(vehicle.reg) % 900_000))}`;
 }
 
 export function sessionDurationHours(session: ChargingSession): number | null {

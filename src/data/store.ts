@@ -6,7 +6,7 @@ import type { CollectionKey, Db, Profile } from "./types";
 
 // All demo data lives in localStorage under this key. CRUD mutates it in
 // place and notifies subscribers; "Reset demo data" just deletes the key.
-const DB_KEY = "ergos-test:db:v2";
+const DB_KEY = "ergos-test:db:v5";
 
 let cache: Db | null = null;
 const listeners = new Set<() => void>();

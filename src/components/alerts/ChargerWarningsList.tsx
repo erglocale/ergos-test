@@ -1,104 +1,125 @@
 "use client";
 
-import { ExclamationCircleFilled } from "@ant-design/icons";
-import { Button, Card, DatePicker, Input, message, Modal, Select, Table, Tag, Typography } from "antd";
+import { Card, DatePicker, Input, Select, Table, Tag, Typography } from "antd";
 import type { TableProps } from "antd";
-import dayjs, { type Dayjs } from "dayjs";
+import dayjs from "dayjs";
+import localizedFormat from "dayjs/plugin/localizedFormat";
+import relativeTime from "dayjs/plugin/relativeTime";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { HiCheckBadge, HiMiniBellAlert } from "react-icons/hi2";
-import { updateRow, useDb } from "@/data/store";
-import type { Alert } from "@/data/types";
-import { fmtDateTime, isVehicleAlert, rangePresets } from "./alertUtils";
+import {
+  chargerWarningTypeOptions,
+  rangePresets,
+  warningStatusOptions,
+} from "@/components/home/FleetAndChargerHostLayout";
+import { useDb } from "@/data/store";
+import type { ChargerWarning } from "@/data/types";
+import { fmtDateTime } from "./alertUtils";
+
+const splitCamelCaseAndUppercase = (str?: string | null) => {
+  if (!str) return "";
+  return str.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase());
+};
+
+dayjs.extend(relativeTime);
+dayjs.extend(localizedFormat);
 
 const { Text } = Typography;
-const { confirm } = Modal;
 const { RangePicker } = DatePicker;
 const { Search } = Input;
 
-const warningStatusOptions = [
-  { value: "All", label: "All" },
-  { value: "New", label: "New" },
-  { value: "Fixed", label: "Resolved" },
-];
+// Production's Type filter values ("Downtime" / "ConnectorFault") map to
+// these warning-object types server-side.
+const WARNING_TYPE_MAP: Record<string, ChargerWarning["warningObject"]["type"]> = {
+  Downtime: "ChargerOffline",
+  ConnectorFault: "ConnectorFaulted",
+};
 
-export default function ChargerWarningsList() {
+export default function ChargerWarnings() {
+  const router = useRouter();
   const db = useDb();
   const [currentPageNumber, setCurrentPageNumber] = useState(1);
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(2, "day").startOf("day"), dayjs()]);
+  const [startDate, setStartDate] = useState(() =>
+    dayjs().subtract(2, "day").startOf("day").toISOString(),
+  );
+  const [endDate, setEndDate] = useState(() => dayjs().toISOString());
   const [limit] = useState(10);
   const [chargerWarningsQueryStatus, setChargerWarningsQueryStatus] = useState("All");
   const [chargerWarningsType, setChargerWarningsType] = useState("ALL");
   const [searchText, setSearchText] = useState("");
   const [debouncedSearchText, setDebouncedSearchText] = useState("");
 
-  // Debouncing search text (same as production)
+  // Debouncing search text
   useEffect(() => {
+    // Set a timer to update the query state after 500ms
     const timer = setTimeout(() => {
       setDebouncedSearchText(searchText);
     }, 700);
+
+    // Clean up the timer if the user types again before 500ms
     return () => clearTimeout(timer);
   }, [searchText]);
 
-  const chargerAlerts = useMemo(() => db.alerts.filter((a) => !isVehicleAlert(a)), [db.alerts]);
-
-  const typeOptions = useMemo(() => {
-    const types = new Set(chargerAlerts.map((a) => a.type));
-    return [{ label: "All", value: "ALL" }, ...[...types].sort().map((t) => ({ label: t, value: t }))];
-  }, [chargerAlerts]);
-
-  const warnings = useMemo(() => {
-    const [start, end] = range;
+  // Store-backed replica of useChargersWarnings (status, type, date window
+  // and search are query params in production).
+  const chargerWarnings = useMemo(() => {
+    const start = dayjs(startDate).startOf("day");
+    const end = dayjs(endDate).endOf("day");
     const search = debouncedSearchText.trim().toLowerCase();
-    return chargerAlerts.filter((a) => {
-      const t = dayjs(a.time);
-      if (t.isBefore(start) || t.isAfter(end.endOf("day"))) return false;
-      if (chargerWarningsQueryStatus === "New" && a.acknowledged) return false;
-      if (chargerWarningsQueryStatus === "Fixed" && !a.acknowledged) return false;
-      if (chargerWarningsType !== "ALL" && a.type !== chargerWarningsType) return false;
+    return db.chargerWarnings.filter((w) => {
+      const t = dayjs(w.warningObject.createdAt);
+      if (t.isBefore(start) || t.isAfter(end)) return false;
+      if (
+        chargerWarningsQueryStatus !== "All" &&
+        w.warningObject.status !== chargerWarningsQueryStatus
+      )
+        return false;
+      if (
+        chargerWarningsType !== "ALL" &&
+        w.warningObject.type !== WARNING_TYPE_MAP[chargerWarningsType]
+      )
+        return false;
       if (
         search &&
-        !a.message.toLowerCase().includes(search) &&
-        !a.source.toLowerCase().includes(search) &&
-        !a.type.toLowerCase().includes(search)
+        !w.charger.name.toLowerCase().includes(search) &&
+        !w.charger.id.toLowerCase().includes(search) &&
+        !w.warningObject.type.toLowerCase().includes(search)
       )
         return false;
       return true;
     });
-  }, [chargerAlerts, range, chargerWarningsQueryStatus, chargerWarningsType, debouncedSearchText]);
+  }, [
+    db.chargerWarnings,
+    startDate,
+    endDate,
+    chargerWarningsQueryStatus,
+    chargerWarningsType,
+    debouncedSearchText,
+  ]);
 
-  const showResolveConfirm = (warning: Alert) => {
-    confirm({
-      title: "Are you sure you want to mark this warning as resolved?",
-      icon: <ExclamationCircleFilled />,
-      content:
-        "If continued, this warning will be marked as resolved. You can find all the resolved warnings in the Resolved Warnings section.",
-      onOk: () => {
-        updateRow("alerts", warning.id, { acknowledged: true });
-        message.success("Warning marked as resolved!");
-      },
-      okText: "Yes, resolve",
-      onCancel() {},
-      width: 540,
-    });
-  };
-
-  const columns: TableProps<Alert>["columns"] = [
+  const columns: TableProps<ChargerWarning>["columns"] = [
     {
       title: "Charger",
       key: "charger",
       width: 220,
       render: (_, record) => {
-        const cp = db.chargepoints.find((c) => c.name === record.source);
+        const address = db.chargepoints.find((c) => c.id === record.charger.id)?.address;
         return (
-          <div style={{ cursor: "pointer" }}>
-            <Text strong ellipsis={{ tooltip: record.source }}>
-              {record.source || "N/A"}
+          <div
+            style={{ cursor: "pointer" }}
+            onClick={() => {
+              if (record?.charger?.id) router.push(`/chargingStations/${record.charger.id}`);
+            }}
+          >
+            <Text strong ellipsis={{ tooltip: record?.charger?.name }}>
+              {record?.charger?.name || "N/A"}
             </Text>
             <br />
-            <Text type="secondary">{cp?.id || "No ID"}</Text>
+            <Text type="secondary">{record?.charger?.id || "No ID"}</Text>
             <br />
-            <Text type="secondary" style={{ fontSize: "11px" }} ellipsis={{ tooltip: cp?.address }}>
-              {cp?.address || "No Address"}
+            <Text type="secondary" style={{ fontSize: "11px" }} ellipsis={{ tooltip: address }}>
+              {address || "No Address"}
             </Text>
           </div>
         );
@@ -106,71 +127,99 @@ export default function ChargerWarningsList() {
     },
     {
       title: "Warning Type",
-      dataIndex: "type",
+      dataIndex: ["warningObject", "type"],
       key: "warningType",
       width: 180,
-      render: (type: string) => <Tag color="volcano">{type || "Unknown"}</Tag>,
+      render: (type: string) => (
+        <Tag color="volcano">{splitCamelCaseAndUppercase(type || "Unknown")}</Tag>
+      ),
     },
     {
       title: "Details",
       key: "details",
-      render: (_, record) => (
-        <Text type="danger" ellipsis={{ tooltip: record.message }}>
-          {record.message || "No specific details available."}
-        </Text>
-      ),
+      render: (_, record) => {
+        const isDowntime = record?.warningObject?.offlineForHours != null;
+        const isConnectorFault = record?.connector != null;
+        if (isDowntime) {
+          return (
+            <Text type="danger">
+              Offline for last{" "}
+              {Math.round(Number(record.warningObject.offlineForHours)) || "N/A"} hours
+            </Text>
+          );
+        } else if (isConnectorFault) {
+          return (
+            <>
+              <Text type="danger">
+                Connector {record.connector!.connectorId || "N/A"} is in{" "}
+                {record.connector!.status || "Unknown"} status for{" "}
+                {record.connector!.updatedAt
+                  ? dayjs(record.connector!.updatedAt).fromNow(true)
+                  : "N/A"}
+              </Text>
+              <br />
+              <Text style={{ color: "#0284c7", fontSize: "11px" }}>
+                Last status received:{" "}
+                {record.connector!.updatedAt
+                  ? dayjs(record.connector!.updatedAt).format("lll")
+                  : "N/A"}
+              </Text>
+            </>
+          );
+        } else {
+          return <Text type="secondary">No specific details available.</Text>;
+        }
+      },
     },
     {
       title: "Timeline",
-      dataIndex: "time",
+      dataIndex: ["warningObject", "createdAt"],
       key: "triggeredAt",
       render: (_, record) => (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1">
-            <HiMiniBellAlert className="h-5 w-5" color="#aa7714" /> Triggered at {fmtDateTime(record.time)}
+            <HiMiniBellAlert className="h-5 w-5" color="#aa7714" /> Triggered at{" "}
+            {fmtDateTime(record?.warningObject?.createdAt)}
           </div>
 
-          {record.acknowledged && (
+          {record?.warningObject?.status === "Fixed" && (
             <div className="flex items-center gap-1">
-              <HiCheckBadge className="h-5 w-5" color="#22c063" /> Resolved
+              <HiCheckBadge className="h-5 w-5" color="#22c063" /> Resolved at{" "}
+              {/* lastChecked stands in for production's warningObject.updatedAt */}
+              {fmtDateTime(record?.warningObject?.lastChecked)}
             </div>
           )}
         </div>
       ),
     },
-    {
-      title: "Actions",
-      key: "actions",
-      align: "center",
-      width: 140,
-      render: (_, record) =>
-        record.acknowledged ? (
-          <Tag color="green">Resolved</Tag>
-        ) : (
-          <Button size="small" onClick={() => showResolveConfirm(record)}>
-            Mark as Resolved
-          </Button>
-        ),
-    },
+    // Production's Actions column (ignore / resolve dropdown) is commented
+    // out in the source — intentionally not rendered here either.
   ];
 
   useEffect(() => {
     setCurrentPageNumber(1);
-  }, [range, chargerWarningsQueryStatus, debouncedSearchText]);
+  }, [startDate, endDate, chargerWarningsQueryStatus, debouncedSearchText]);
 
   return (
     <>
       <div
         className="flex w-full items-center justify-start gap-4"
-        style={{ marginBottom: "16px", marginTop: "0px" }}
+        style={{
+          marginBottom: "16px",
+          marginTop: "0px",
+        }}
       >
         <RangePicker
           style={{ width: "600px" }}
           presets={rangePresets}
-          value={range}
+          value={[dayjs(startDate), dayjs(endDate)]}
           onChange={(value) => {
-            if (value && value[0] && value[1]) setRange([value[0], value[1]]);
+            if (value && value[0] && value[1]) {
+              setStartDate(value[0].toISOString());
+              setEndDate(value[1].toISOString());
+            }
           }}
+          format="DD MMM YYYY"
           allowClear={false}
         />
 
@@ -200,7 +249,7 @@ export default function ChargerWarningsList() {
             value={chargerWarningsType}
             placeholder="Type"
             onChange={setChargerWarningsType}
-            options={typeOptions}
+            options={chargerWarningTypeOptions}
           />
         </div>
       </div>
@@ -216,16 +265,18 @@ export default function ChargerWarningsList() {
         styles={{ body: { padding: 0 } }}
         hoverable
       >
-        <Table<Alert>
+        <Table<ChargerWarning>
           columns={columns}
-          dataSource={warnings}
+          dataSource={chargerWarnings}
           rowKey="id"
           pagination={{
             pageSize: limit,
-            total: warnings.length,
+            total: chargerWarnings.length,
             current: currentPageNumber,
-            onChange: (page) => setCurrentPageNumber(page),
-            showTotal: (total, r) => `${r[0]}-${r[1]} of ${total} warnings`,
+            onChange: (page) => {
+              setCurrentPageNumber(page);
+            },
+            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} warnings`,
             position: ["bottomCenter"],
           }}
           scroll={{ x: "max-content" }}

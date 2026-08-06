@@ -47,7 +47,6 @@ function lineChartOption(
       max: opts.yMax ?? 100,
       splitLine: { lineStyle: { type: "dashed", color: "#e0e0e0" } },
     },
-    dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 30 }],
     series: [
       {
         name,

@@ -2,7 +2,7 @@ export type ConnectorStatus = "Available" | "Charging" | "Faulted" | "Unavailabl
 
 export interface Connector {
   id: number;
-  type: "IEC60309" | "Type2" | "CCS2" | "3-pin";
+  type: "IEC60309" | "Type2" | "CCS2" | "3PIN";
   powerKw: number;
   status: ConnectorStatus;
 }
@@ -21,6 +21,8 @@ export interface Chargepoint {
   lng: number;
   tariffPerKwh: number;
   createdAt: string;
+  /** Production gates its "Smart Charger" tag on this; the demo fleet has none. */
+  isSmartCharger?: boolean;
 }
 
 export interface ChargingSession {
@@ -87,14 +89,47 @@ export interface Trip {
   avgSpeedKmh: number;
 }
 
+// Mirrors production's telemetry vehicle alerts (utils/alerts.js): the same
+// eight alert types, with the per-type payloads getAlertSummary() reads.
+export type AlertType =
+  | "excessive_idle"
+  | "low_aux_battery"
+  | "low_soc_level_1"
+  | "low_soc_level_2"
+  | "low_soc_level_3"
+  | "overspeed"
+  | "overspeed_low_soc"
+  | "repeated_fast_charging";
+
 export interface Alert {
   id: string;
-  severity: "Critical" | "Warning" | "Info";
-  type: string;
-  message: string;
-  source: string;
-  time: string;
-  acknowledged: boolean;
+  alertType: AlertType;
+  severity: "critical" | "warning" | "info";
+  vehicleLicensePlate: string;
+  payload: Record<string, number>;
+  createdAt: string;
+  resolved: boolean;
+  resolvedAt: string | null;
+}
+
+// Mirrors the production charger-warnings feed (ChargerWarningsList /
+// ChargerWarning): nested charger/connector/warningObject rows.
+export interface ChargerWarning {
+  id: string;
+  charger: { id: string; name: string; hub: string };
+  connector: {
+    connectorId: number;
+    status: ConnectorStatus;
+    updatedAt: string;
+  } | null;
+  warningObject: {
+    type: "ChargerOffline" | "ConnectorFaulted";
+    status: "New" | "Ignore" | "Fixed";
+    createdAt: string;
+    offlineForHours: number | null;
+    lastChecked: string | null;
+    resolution: string;
+  };
 }
 
 export interface PortalUser {
@@ -174,6 +209,7 @@ export interface Db {
   drivers: Driver[];
   trips: Trip[];
   alerts: Alert[];
+  chargerWarnings: ChargerWarning[];
   users: PortalUser[];
   wallets: Wallet[];
   suggestions: Suggestion[];

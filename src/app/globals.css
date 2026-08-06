@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/* Production runs Tailwind v3, where bare `border-*` classes default to
+   gray-200. Tailwind v4 changed that default to currentColor, which renders
+   as black borders everywhere — restore the v3 behavior (official upgrade-
+   guide compat layer) so the replica matches production. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
+
 body {
   background: #ffffff;
   color: #171717;

@@ -41,12 +41,6 @@ interface ComparisonMetric {
   endDate: string;
 }
 
-function hashInt(id: string, lo: number, hi: number): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) | 0;
-  return lo + (Math.abs(h) % (hi - lo + 1));
-}
-
 export default function ChargerHostLayout() {
   const db = useDb();
 
@@ -140,56 +134,26 @@ export default function ChargerHostLayout() {
   }
 
   /** ************  Charger warnings (from the dummy store)  *************** */
-  const chargerDowntimeWarnings = useMemo<ChargerWarningItem[]>(() => {
-    if (warningsQueryStatus !== "New") return [];
-    return db.chargepoints
-      .filter((c) => c.status === "Offline")
-      .map((c) => ({
-        warningId: c.id,
-        sourceKind: "chargepoint" as const,
-        charger: { id: c.id, name: c.name, address: c.address },
-        warningObject: {
-          type: "ChargerDowntime",
-          resolution:
-            "Check the power supply and network connectivity at the charger site.",
-          offlineForHours: hashInt(c.id, 3, 48),
-        },
-      }));
-  }, [db.chargepoints, warningsQueryStatus]);
-
-  const chargerConnectorFaultWarnings = useMemo<ChargerWarningItem[]>(() => {
-    if (warningsQueryStatus !== "New" && warningsQueryStatus !== "Fixed")
-      return [];
-    const wantAcknowledged = warningsQueryStatus === "Fixed";
-    return db.alerts
-      .filter(
-        (a) => a.type === "Charger fault" && a.acknowledged === wantAcknowledged,
-      )
-      .flatMap((a) => {
-        const cp = db.chargepoints.find((c) => c.name === a.source);
-        if (!cp) return [];
-        return [
-          {
-            warningId: a.id,
-            sourceKind: "alert" as const,
-            charger: { id: cp.id, name: cp.name, address: cp.address },
-            warningObject: {
-              type: "ConnectorFault",
-              resolution:
-                "Power-cycle the charger and re-seat the connector, then retry the session.",
-            },
-            connector: {
-              connectorId: hashInt(a.id, 1, 2),
-              status: "Faulted",
-              updatedAt: a.time,
-            },
+  const chargerWarnings = useMemo<ChargerWarningItem[]>(
+    () =>
+      db.chargerWarnings
+        .filter((w) => w.warningObject.status === warningsQueryStatus)
+        .map((w) => ({
+          warningId: w.id,
+          charger: {
+            id: w.charger.id,
+            name: w.charger.name,
+            address:
+              db.chargepoints.find((c) => c.id === w.charger.id)?.address ??
+              w.charger.hub,
           },
-        ];
-      });
-  }, [db.alerts, db.chargepoints, warningsQueryStatus]);
+          connector: w.connector,
+          warningObject: w.warningObject,
+        })),
+    [db.chargerWarnings, db.chargepoints, warningsQueryStatus],
+  );
 
-  const chargerWarningsCount =
-    chargerDowntimeWarnings.length + chargerConnectorFaultWarnings.length;
+  const chargerWarningsCount = chargerWarnings.length;
   /** *************************************************************** */
 
   const items = [
@@ -213,22 +177,18 @@ export default function ChargerHostLayout() {
             </Card>
           ) : (
             <>
-              {chargerDowntimeWarnings.map((warning) => (
+              {chargerWarnings.map((warning) => (
                 <Card
-                  key={`downtime-${warning.warningId}`}
-                  style={{ position: "relative", marginBottom: 12 }}
-                >
-                  <ChargerWarning warning={warning} type="downtimeWarning" />
-                </Card>
-              ))}
-              {chargerConnectorFaultWarnings.map((warning) => (
-                <Card
-                  key={`connector-${warning.warningId}`}
+                  key={warning.warningId}
                   style={{ position: "relative", marginBottom: 12 }}
                 >
                   <ChargerWarning
                     warning={warning}
-                    type="connectorFaultWarning"
+                    type={
+                      warning.warningObject.type === "ChargerOffline"
+                        ? "downtimeWarning"
+                        : "connectorFaultWarning"
+                    }
                   />
                 </Card>
               ))}

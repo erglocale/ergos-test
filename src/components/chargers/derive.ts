@@ -28,7 +28,9 @@ export function deriveCharger(cp: Chargepoint): DerivedChargerFields {
     city: parts.length >= 2 ? parts[parts.length - 2] : cp.hub,
     region: match ? match[1] : "Assam",
     pincode: match ? match[2] : "781001",
-    isSmartCharger: cp.vendor === "Delta",
+    // Production gates the "Smart Charger" tag on the station's own
+    // isSmartCharger flag (chargepoints.jsx) — never derived from the vendor.
+    isSmartCharger: cp.isSmartCharger === true,
     stationId: cp.hub.replace(/\s+/g, "-").toUpperCase(),
     identification: cp.serial,
     openTime: "06:00",

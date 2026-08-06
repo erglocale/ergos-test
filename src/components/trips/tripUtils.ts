@@ -3,7 +3,7 @@ import type { Trip } from "@/data/types";
 
 export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return "N/A";
-  return dayjs(iso).format("DD MMM YYYY, hh:mm A");
+  return dayjs(iso).format("DD/MM/YYYY, hh:mm a");
 }
 
 /** "2 hours 15 minutes" style duration, mirroring utils/misc getDurationString. */

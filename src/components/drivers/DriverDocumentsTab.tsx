@@ -47,6 +47,14 @@ function deriveDriverDocs(driver: Driver): DriverDoc[] {
   ];
 
   const templates: Omit<DriverDoc, "id" | "createdAt" | "verificationStatus">[] = [
+    // Aadhaar first: the fleet's one real document is a pending Aadhaar, and
+    // the summary-driven status list assigns templates in order.
+    {
+      documentType: "AADHAAR",
+      documentIdentifier: `XXXX XXXX ${String(h % 10_000).padStart(4, "0")}`,
+      fileKind: "Image",
+      expiresAt: null,
+    },
     {
       documentType: "DRIVING_LICENSE",
       documentIdentifier: driver.licenseNo,
@@ -54,12 +62,6 @@ function deriveDriverDocs(driver: Driver): DriverDoc[] {
       expiresAt: dayjs()
         .add(180 + (h % 1500), "day")
         .toISOString(),
-    },
-    {
-      documentType: "AADHAAR",
-      documentIdentifier: `XXXX XXXX ${String(h % 10_000).padStart(4, "0")}`,
-      fileKind: "Image",
-      expiresAt: null,
     },
     {
       documentType: "OTHERS",

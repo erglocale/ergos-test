@@ -11,13 +11,13 @@ export interface NudgeRow {
   evId: string;
   label: string;
   hub: string;
-  soc: number;
+  soc: number | null;
   reason: string;
   createdAt: string;
-  targetCap: number;
-  slackMin: number;
-  hubDistanceKm: number;
-  rank: number;
+  targetCap: number | null;
+  slackMin: number | null;
+  hubDistanceKm: number | null;
+  rank: number | null;
   _kind: "charge";
 }
 
@@ -30,8 +30,8 @@ export interface CapRow {
   suggestionId: string;
   evId: string;
   label: string;
-  status: Suggestion["status"];
-  currentCapPct: number;
+  status?: Suggestion["status"];
+  currentCapPct?: number;
   windowFrom: string;
   windowTo: string;
   computedAt: string;

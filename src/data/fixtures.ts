@@ -2,6 +2,7 @@ import dayjs from "dayjs";
 import type {
   Alert,
   Chargepoint,
+  ChargerWarning,
   ChargingSession,
   Db,
   Driver,
@@ -59,36 +60,46 @@ export function makeFixtures(now = dayjs()): Db {
   const int = (lo: number, hi: number) => Math.floor(between(lo, hi + 1));
 
   // ---- chargepoints -------------------------------------------------------
+  // Modeled on the real fleet's chargers: slow 3.3 kW single-connector EVRE
+  // AC units ("CP-1, Six Mile" naming), 3-pin sockets, no smart chargers.
   const chargepoints: Chargepoint[] = [];
   const cpModels = [
-    { model: "EVRE Buzz 3.3", vendor: "EVRE", powerKw: 3.3, type: "IEC60309" as const },
-    { model: "Exicom Harmony", vendor: "Exicom", powerKw: 7.4, type: "Type2" as const },
-    { model: "Delta DC City", vendor: "Delta", powerKw: 30, type: "CCS2" as const },
+    { model: "AC001", vendor: "EVRE", powerKw: 3, type: "3PIN" as const },
+    { model: "HALO", vendor: "EVRE", powerKw: 3, type: "3PIN" as const },
   ];
   let cpIdx = 0;
   for (const hub of HUBS) {
+    const place = hub.name.replace(/ (Hub|Depot)$/, "");
     for (let i = 0; i < 3; i += 1) {
       cpIdx += 1;
-      const m = cpModels[i % cpModels.length];
+      const m = cpModels[(cpIdx + i) % cpModels.length];
       const offline = cpIdx === 5;
+      // One faulted connector on an online charger feeds the charger-warnings feed.
+      const faultedConn = cpIdx === 3;
       chargepoints.push({
         id: `CP-${String(cpIdx).padStart(3, "0")}`,
-        name: `${hub.name.split(" ")[0]}-${String(i + 1).padStart(2, "0")}`,
+        name: `CP-${i + 1}, ${place}`,
         hub: hub.name,
         serial: `ERG${2024000 + cpIdx * 17}`,
         model: m.model,
         vendor: m.vendor,
         status: offline ? "Offline" : "Online",
-        connectors: [1, 2].map((cid) => ({
-          id: cid,
-          type: m.type,
-          powerKw: m.powerKw,
-          status: offline ? ("Unavailable" as const) : ("Available" as const),
-        })),
+        connectors: [
+          {
+            id: 1,
+            type: m.type,
+            powerKw: m.powerKw,
+            status: offline
+              ? ("Unavailable" as const)
+              : faultedConn
+                ? ("Faulted" as const)
+                : ("Available" as const),
+          },
+        ],
         address: hub.address,
         lat: round2(hub.lat + between(-0.002, 0.002)) ,
         lng: round2(hub.lng + between(-0.002, 0.002)),
-        tariffPerKwh: m.powerKw >= 22 ? 18 : 9.5,
+        tariffPerKwh: 9.5,
         createdAt: now.subtract(int(200, 400), "day").toISOString(),
       });
     }
@@ -175,21 +186,32 @@ export function makeFixtures(now = dayjs()): Db {
   trips.sort((a, b) => (a.startTime < b.startTime ? 1 : -1));
 
   // ---- charging sessions (last 30 days) ----------------------------------
+  // Value ranges taken from the real fleet's OCPP sessions: slow 3.3 kW
+  // top-ups of small batteries — mostly 0.4–4.5 kWh over 15 min–2.5 h, the
+  // odd plug-in that draws ~nothing, stop reason almost always
+  // "EVDisconnected", and no billing amounts (fleet charging is unbilled).
   const sessions: ChargingSession[] = [];
   let sesId = 0;
-  const onlineCps = chargepoints.filter((c) => c.status === "Online");
+  const usableCps = chargepoints.filter(
+    (c) => c.status === "Online" && c.connectors.every((cn) => cn.status !== "Faulted"),
+  );
   for (let d = 30; d >= 0; d -= 1) {
     const day = now.subtract(d, "day");
     for (const v of vehicles) {
       if (rand() < 0.45) continue;
       sesId += 1;
-      const cp = pick(onlineCps);
-      const connector = pick(cp.connectors);
+      const cp = pick(usableCps);
+      const connector = cp.connectors[0];
       const start = day.hour(pick([20, 21, 22, 13])).minute(int(0, 59));
-      const socStart = int(15, 60);
-      const socEnd = Math.min(v.socCapPct, socStart + int(25, 70));
-      const energy = round2(((socEnd - socStart) / 100) * v.batteryKwh);
-      const durMin = Math.round((energy / connector.powerKw) * 60) + int(5, 20);
+      const socStart = int(20, 65);
+      const dud = rand() < 0.08; // plugged in but drew ~nothing
+      const maxEnergy = Math.min(4.5, ((v.socCapPct - socStart) / 100) * v.batteryKwh);
+      const energy = dud ? round2(between(0, 0.05)) : round2(between(0.4, maxEnergy));
+      const socEnd = Math.min(
+        v.socCapPct,
+        socStart + Math.round((energy / v.batteryKwh) * 100),
+      );
+      const durMin = Math.round((energy / connector.powerKw) * 60) + int(8, 35);
       const end = start.add(durMin, "minute");
       const ongoing = d === 0 && end.isAfter(now);
       const faulted = !ongoing && rand() < 0.04;
@@ -204,39 +226,140 @@ export function makeFixtures(now = dayjs()): Db {
         endTime: ongoing ? null : end.toISOString(),
         energyKwh: ongoing ? round2(energy * 0.4) : faulted ? round2(energy * 0.2) : energy,
         socStart,
-        socEnd: ongoing ? null : faulted ? socStart + int(2, 8) : socEnd,
-        cost: round2(energy * cp.tariffPerKwh * (ongoing ? 0.4 : faulted ? 0.2 : 1)),
+        socEnd: ongoing ? null : faulted ? socStart + int(1, 4) : socEnd,
+        cost: 0,
         status: ongoing ? "Ongoing" : faulted ? "Faulted" : "Completed",
-        stopReason: ongoing ? null : faulted ? "EVSE fault" : pick(["Remote stop", "Target SOC reached", "EV disconnected"]),
+        stopReason: ongoing ? null : faulted ? "PowerLoss" : pick(["EVDisconnected", "EVDisconnected", "EVDisconnected", "Remote"]),
       });
     }
   }
   sessions.sort((a, b) => (a.startTime < b.startTime ? 1 : -1));
 
-  // ---- alerts -------------------------------------------------------------
-  const alertSpecs: Array<[Alert["severity"], string, string]> = [
-    ["Critical", "Low SOC", "battery below 10% while away from hub"],
-    ["Critical", "Charger fault", "connector reported EVSE fault"],
-    ["Warning", "Charging interrupted", "session ended before target SOC"],
-    ["Warning", "Idle vehicle", "no trips recorded in last 48h"],
-    ["Warning", "Offline device", "telematics device unreachable for 6h"],
-    ["Info", "Charging complete", "vehicle reached its SOC cap"],
-    ["Info", "New suggestion", "a new SOC cap suggestion is available"],
+  // ---- alerts (telemetry vehicle alerts) ----------------------------------
+  // Only the five alert types the real system actually fires, in roughly the
+  // real proportions (overspeed dominates by an order of magnitude:
+  // 607 / 49 / 15 / 12 / 6 in production at the time of writing). Payload
+  // fields are the ones production's getAlertSummary() renders per type.
+  const alertSpecs: Array<{
+    alertType: Alert["alertType"];
+    severity: Alert["severity"];
+    weight: number;
+    payload: () => Record<string, number>;
+  }> = [
+    {
+      alertType: "overspeed",
+      severity: "warning",
+      weight: 607,
+      payload: () => ({
+        max_speed: int(48, 64),
+        threshold: 45,
+        duration_seconds: int(30, 600),
+      }),
+    },
+    {
+      alertType: "low_soc_level_1",
+      severity: "info",
+      weight: 49,
+      payload: () => ({ threshold: 30 }),
+    },
+    {
+      alertType: "low_soc_level_2",
+      severity: "warning",
+      weight: 15,
+      payload: () => ({ threshold: 20 }),
+    },
+    {
+      alertType: "overspeed_low_soc",
+      severity: "critical",
+      weight: 12,
+      payload: () => ({
+        max_speed: int(48, 60),
+        overspeed_threshold: 45,
+        start_soc: int(8, 25),
+        low_soc_threshold: 30,
+      }),
+    },
+    {
+      alertType: "excessive_idle",
+      severity: "warning",
+      weight: 6,
+      payload: () => ({ duration_hours: round1(between(2.5, 9)), threshold_hours: 2 }),
+    },
   ];
-  const alerts: Alert[] = Array.from({ length: 16 }, (_, i) => {
-    const [severity, type, tail] = alertSpecs[i % alertSpecs.length];
+  const totalWeight = alertSpecs.reduce((s, a) => s + a.weight, 0);
+  const pickAlertSpec = () => {
+    let roll = rand() * totalWeight;
+    for (const spec of alertSpecs) {
+      roll -= spec.weight;
+      if (roll <= 0) return spec;
+    }
+    return alertSpecs[0];
+  };
+  const alerts: Alert[] = Array.from({ length: 60 }, (_, i) => {
+    // First pass guarantees every real type appears at least once (the
+    // weighted draw alone can leave the rare ones out); rest follow the
+    // real overspeed-heavy distribution.
+    const spec = i < alertSpecs.length ? alertSpecs[i] : pickAlertSpec();
     const v = pick(vehicles);
-    const src = type === "Charger fault" ? pick(chargepoints).name : v.reg;
+    const createdAt = now.subtract(int(1, 7 * 24), "hour");
+    const resolved = rand() < 0.35;
     return {
       id: `al-${i + 1}`,
-      severity,
-      type,
-      message: `${src}: ${tail}`,
-      source: src,
-      time: now.subtract(int(1, 96), "hour").toISOString(),
-      acknowledged: rand() < 0.4,
+      alertType: spec.alertType,
+      severity: spec.severity,
+      vehicleLicensePlate: v.reg,
+      payload: spec.payload(),
+      createdAt: createdAt.toISOString(),
+      resolved,
+      resolvedAt: resolved
+        ? createdAt.add(int(20, 600), "minute").toISOString()
+        : null,
     };
-  }).sort((a, b) => (a.time < b.time ? 1 : -1));
+  }).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+
+  // ---- charger warnings ---------------------------------------------------
+  // Derived from the charger fleet's actual state: the offline unit and the
+  // faulted connector each raise one warning, shaped like the production feed.
+  const chargerWarnings: ChargerWarning[] = [];
+  for (const cp of chargepoints) {
+    if (cp.status === "Offline") {
+      const hours = int(6, 48);
+      chargerWarnings.push({
+        id: `cw-${chargerWarnings.length + 1}`,
+        charger: { id: cp.id, name: cp.name, hub: cp.hub },
+        connector: null,
+        warningObject: {
+          type: "ChargerOffline",
+          status: "New",
+          createdAt: now.subtract(hours, "hour").toISOString(),
+          offlineForHours: hours,
+          lastChecked: now.subtract(hours, "hour").toISOString(),
+          resolution: "Check the charger's power supply and network connection, then power-cycle it.",
+        },
+      });
+    }
+    const faulted = cp.connectors.find((cn) => cn.status === "Faulted");
+    if (faulted) {
+      const since = int(3, 30);
+      chargerWarnings.push({
+        id: `cw-${chargerWarnings.length + 1}`,
+        charger: { id: cp.id, name: cp.name, hub: cp.hub },
+        connector: {
+          connectorId: faulted.id,
+          status: faulted.status,
+          updatedAt: now.subtract(since, "hour").toISOString(),
+        },
+        warningObject: {
+          type: "ConnectorFaulted",
+          status: "New",
+          createdAt: now.subtract(since, "hour").toISOString(),
+          offlineForHours: null,
+          lastChecked: null,
+          resolution: "Unplug any vehicle, then reset the connector from the charger controls.",
+        },
+      });
+    }
+  }
 
   // ---- portal users + wallets --------------------------------------------
   const users: PortalUser[] = [
@@ -359,6 +482,7 @@ export function makeFixtures(now = dayjs()): Db {
     drivers,
     trips,
     alerts,
+    chargerWarnings,
     users,
     wallets,
     suggestions,

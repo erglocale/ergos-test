@@ -1,10 +1,10 @@
 "use client";
 
 import { Badge, Tabs, Typography } from "antd";
+import dayjs from "dayjs";
 import { useMemo } from "react";
-import ChargerWarningsList from "@/components/alerts/ChargerWarningsList";
-import VehicleWarningsList from "@/components/alerts/VehicleWarningsList";
-import { isVehicleAlert } from "@/components/alerts/alertUtils";
+import ChargerWarnings from "@/components/alerts/ChargerWarningsList";
+import VehicleWarnings from "@/components/alerts/VehicleWarningsList";
 import { useDb } from "@/data/store";
 
 const { Title } = Typography;
@@ -12,10 +12,15 @@ const { Title } = Typography;
 export default function Alerts() {
   const db = useDb();
 
-  const chargerWarningsCount = useMemo(
-    () => db.alerts.filter((a) => !isVehicleAlert(a) && !a.acknowledged).length,
-    [db.alerts],
-  );
+  // Replica of useChargersWarnings({ status: 'New', startDate: subDays(2), endDate: now })
+  const chargerWarningsCount = useMemo(() => {
+    const start = dayjs().subtract(2, "day");
+    return db.chargerWarnings.filter(
+      (w) =>
+        w.warningObject.status === "New" &&
+        !dayjs(w.warningObject.createdAt).isBefore(start),
+    ).length;
+  }, [db.chargerWarnings]);
 
   return (
     <div style={{ padding: "0 16px" }}>
@@ -26,12 +31,15 @@ export default function Alerts() {
       <Tabs
         defaultActiveKey="1"
         tabBarGutter={40}
-        tabBarStyle={{ borderBottom: "1px solid #e8e8e8", marginBottom: 20 }}
+        tabBarStyle={{
+          borderBottom: "1px solid #e8e8e8",
+          marginBottom: 20,
+        }}
         items={[
           {
             key: "1",
             label: "Vehicle Alerts",
-            children: <VehicleWarningsList />,
+            children: <VehicleWarnings />,
           },
           {
             key: "2",
@@ -42,7 +50,8 @@ export default function Alerts() {
                   count={chargerWarningsCount || 0}
                   overflowCount={99}
                   style={{
-                    backgroundColor: chargerWarningsCount > 0 ? "#dc2626" : "#d1d5db",
+                    backgroundColor:
+                      chargerWarningsCount > 0 ? "#dc2626" : "#d1d5db",
                     marginLeft: 8,
                     boxShadow: "0 0 0 1px #fff",
                     position: "relative",
@@ -52,7 +61,7 @@ export default function Alerts() {
                 />
               </span>
             ),
-            children: <ChargerWarningsList />,
+            children: <ChargerWarnings />,
           },
         ]}
       />

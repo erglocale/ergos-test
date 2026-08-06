@@ -230,6 +230,9 @@ function CapDetail({
           cap?.tolerance_pct != null
             ? {
                 silent: true,
+                // Production's recharts ReferenceLine renders statically —
+                // suppress echarts' default draw-in animation to match.
+                animation: false,
                 symbol: "none",
                 lineStyle: { color: RED, type: "dashed", width: 1 },
                 label: {

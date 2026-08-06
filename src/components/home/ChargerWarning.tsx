@@ -5,8 +5,10 @@ import { Button, Dropdown, message, Modal, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import localizedFormat from "dayjs/plugin/localizedFormat";
 import relativeTime from "dayjs/plugin/relativeTime";
+import { useRouter } from "next/navigation";
 import { LuCircleCheckBig, LuCircleOff, LuEllipsis } from "react-icons/lu";
 import { updateRow } from "@/data/store";
+import type { ChargerWarning as ChargerWarningRow } from "@/data/types";
 
 dayjs.extend(relativeTime);
 dayjs.extend(localizedFormat);
@@ -14,19 +16,14 @@ dayjs.extend(localizedFormat);
 const { Text } = Typography;
 const { confirm } = Modal;
 
-// View model derived locally from the dummy store (chargepoints + alerts) —
-// mirrors the warning objects returned by the production warnings API.
+// View model matching the records the production warnings API returns
+// (warningId + charger with address), built from db.chargerWarnings rows.
 export interface ChargerWarningItem {
+  /** db.chargerWarnings row id — production's record.warningId. */
   warningId: string;
-  /** Which store collection resolving/ignoring this warning mutates. */
-  sourceKind: "alert" | "chargepoint";
   charger: { id: string; name: string; address: string };
-  warningObject: {
-    type: string;
-    resolution: string;
-    offlineForHours?: number;
-  };
-  connector?: { connectorId: number; status: string; updatedAt: string };
+  connector: ChargerWarningRow["connector"];
+  warningObject: ChargerWarningRow["warningObject"];
 }
 
 export const splitCamelCaseAndUppercase = (str?: string) => {
@@ -34,15 +31,19 @@ export const splitCamelCaseAndUppercase = (str?: string) => {
   return str.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase());
 };
 
-// Store-backed replacement for useUpdateWarningStatusMutation: resolving an
-// alert-backed warning acknowledges the alert row; resolving a
-// chargepoint-downtime warning brings the chargepoint back online.
-function applyWarningStatus(warning: ChargerWarningItem) {
-  if (warning.sourceKind === "alert") {
-    updateRow("alerts", warning.warningId, { acknowledged: true });
-  } else {
-    updateRow("chargepoints", warning.warningId, { status: "Online" });
-  }
+// Store-backed replacement for useUpdateWarningStatusMutation: patches the
+// warning row's status (lastChecked stands in for the API's updatedAt).
+function applyWarningStatus(
+  warning: ChargerWarningItem,
+  status: "Ignore" | "Fixed",
+) {
+  updateRow("chargerWarnings", warning.warningId, {
+    warningObject: {
+      ...warning.warningObject,
+      status,
+      lastChecked: new Date().toISOString(),
+    },
+  });
 }
 
 function DisplayWarning({
@@ -128,6 +129,8 @@ export default function ChargerWarning({
   warning: ChargerWarningItem;
   type?: "downtimeWarning" | "connectorFaultWarning";
 }) {
+  const router = useRouter();
+
   const showIgnoreConfirm = () => {
     confirm({
       title: "Are you sure you want to ignore this warning?",
@@ -135,7 +138,7 @@ export default function ChargerWarning({
       content:
         "This action may have unintended consequences. Are you sure you want to ignore this warning without resolving it? If continued, you can find all the ignored warnings in the Ignored Warnings section.",
       onOk: () => {
-        applyWarningStatus(warning);
+        applyWarningStatus(warning, "Ignore");
         message.warning("Warning ignored!");
       },
       okText: "Yes, ignore",
@@ -151,7 +154,7 @@ export default function ChargerWarning({
       content:
         "If continued, this warning will be marked as resolved. You can find all the resolved warnings in the Resolved Warnings section.",
       onOk: () => {
-        applyWarningStatus(warning);
+        applyWarningStatus(warning, "Fixed");
         message.success("Warning marked as resolved!");
       },
       okText: "Yes, resolve",
@@ -172,6 +175,9 @@ export default function ChargerWarning({
           display: "flex",
           flexDirection: "column",
           marginLeft: "20px",
+        }}
+        onClick={() => {
+          router.push(`/chargingStations/${warning?.charger?.id}`);
         }}
       >
         <Tag color="volcano" style={{ textAlign: "center", fontWeight: 600 }}>

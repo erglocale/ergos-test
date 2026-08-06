@@ -2,19 +2,26 @@
 
 import { Card, Col, DatePicker, Row, Select, Table, Tag, Tooltip, Typography } from "antd";
 import type { TableProps } from "antd";
-import dayjs, { type Dayjs } from "dayjs";
-import Link from "next/link";
+import dayjs from "dayjs";
+import localizedFormat from "dayjs/plugin/localizedFormat";
+import relativeTime from "dayjs/plugin/relativeTime";
+import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import { HiMiniBellAlert } from "react-icons/hi2";
+import { rangePresets } from "@/components/home/FleetAndChargerHostLayout";
 import { useDb } from "@/data/store";
 import type { Alert } from "@/data/types";
 import {
   ALERT_TYPE_COLORS,
+  ALERT_TYPE_OPTIONS,
   SEVERITY_COLORS,
   fmtDateTime,
-  isVehicleAlert,
-  rangePresets,
+  formatAlertType,
+  getAlertSummary,
 } from "./alertUtils";
+
+dayjs.extend(relativeTime);
+dayjs.extend(localizedFormat);
 
 const { Text, Title } = Typography;
 const { RangePicker } = DatePicker;
@@ -25,6 +32,45 @@ interface BreakdownItem {
   type: string;
   count: number;
   color: string;
+}
+
+// Local replica of Components/HubManagement/HubFilter — hubs derived from
+// the dummy store instead of the hubs API.
+function HubFilter({
+  value,
+  onChange,
+  placeholder = "Filter by hub",
+  style,
+}: {
+  value: string | null;
+  onChange: (hub: string | null) => void;
+  placeholder?: string;
+  style?: React.CSSProperties;
+}) {
+  const db = useDb();
+  const hubs = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...db.vehicles.map((v) => v.hub),
+          ...db.chargepoints.map((c) => c.hub),
+        ]),
+      ).sort(),
+    [db.vehicles, db.chargepoints],
+  );
+
+  return (
+    <Select
+      allowClear
+      showSearch
+      placeholder={placeholder}
+      value={value || undefined}
+      onChange={(v) => onChange(v || null)}
+      optionFilterProp="label"
+      style={{ minWidth: 180, ...(style || {}) }}
+      options={hubs.map((h) => ({ label: h, value: h }))}
+    />
+  );
 }
 
 function DonutChart({ breakdown, totalCount }: { breakdown: BreakdownItem[]; totalCount: number }) {
@@ -135,7 +181,8 @@ function DonutChart({ breakdown, totalCount }: { breakdown: BreakdownItem[]; tot
                 verticalAlign: "middle",
               }}
             />
-            {segments[hovered].type}: {segments[hovered].count} ({segments[hovered].pct}%)
+            {formatAlertType(segments[hovered].type)}: {segments[hovered].count}{" "}
+            ({segments[hovered].pct}%)
           </div>
         )}
       </div>
@@ -165,7 +212,7 @@ function DonutChart({ breakdown, totalCount }: { breakdown: BreakdownItem[]; tot
               }}
             />
             <Text style={{ fontSize: 13 }}>
-              {item.type}{" "}
+              {formatAlertType(item.type)}{" "}
               <Text type="secondary" style={{ fontSize: 12 }}>
                 ({item.count})
               </Text>
@@ -182,35 +229,15 @@ function DonutChart({ breakdown, totalCount }: { breakdown: BreakdownItem[]; tot
   );
 }
 
-function SeverityBadge({ label, count, color }: { label: string; count: number; color: string }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 14px",
-        borderRadius: 8,
-        background: `${color}0D`,
-        border: `1px solid ${color}33`,
-      }}
-    >
-      <span style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
-      <Text style={{ fontSize: 13, color }}>
-        {label}: <strong>{count}</strong>
-      </Text>
-    </div>
-  );
-}
-
 function SummaryCards({ alerts, totalCount }: { alerts: Alert[]; totalCount: number }) {
   const { severityCounts, alertBreakdown } = useMemo(() => {
-    const sevMap: Record<string, number> = { Critical: 0, Warning: 0, Info: 0 };
+    const sevMap: Record<string, number> = { critical: 0, warning: 0, info: 0 };
     const typeMap: Record<string, number> = {};
 
     for (const a of alerts) {
-      if (sevMap[a.severity] !== undefined) sevMap[a.severity] += 1;
-      typeMap[a.type] = (typeMap[a.type] || 0) + 1;
+      if (a.severity && sevMap[a.severity] !== undefined) sevMap[a.severity]++;
+      const t = a.alertType;
+      if (t) typeMap[t] = (typeMap[t] || 0) + 1;
     }
 
     const breakdown: BreakdownItem[] = Object.entries(typeMap)
@@ -239,9 +266,9 @@ function SummaryCards({ alerts, totalCount }: { alerts: Alert[]; totalCount: num
           </Title>
 
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <SeverityBadge label="Critical" count={severityCounts.Critical} color="#ef4444" />
-            <SeverityBadge label="Warning" count={severityCounts.Warning} color="#f59e0b" />
-            <SeverityBadge label="Info" count={severityCounts.Info} color="#3b82f6" />
+            <SeverityBadge label="Critical" count={severityCounts.critical} color="#ef4444" />
+            <SeverityBadge label="Warning" count={severityCounts.warning} color="#f59e0b" />
+            <SeverityBadge label="Info" count={severityCounts.info} color="#3b82f6" />
           </div>
         </Card>
       </Col>
@@ -261,43 +288,67 @@ function SummaryCards({ alerts, totalCount }: { alerts: Alert[]; totalCount: num
   );
 }
 
-export default function VehicleWarningsList() {
+function SeverityBadge({ label, count, color }: { label: string; count: number; color: string }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "6px 14px",
+        borderRadius: 8,
+        background: `${color}0D`,
+        border: `1px solid ${color}33`,
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
+      <Text style={{ fontSize: 13, color }}>
+        {label}: <strong>{count}</strong>
+      </Text>
+    </div>
+  );
+}
+
+export default function VehicleWarnings() {
+  const router = useRouter();
   const db = useDb();
 
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(7, "day").startOf("day"), dayjs()]);
+  const [startDate, setStartDate] = useState(() =>
+    dayjs().subtract(7, "day").startOf("day").toISOString(),
+  );
+  const [endDate, setEndDate] = useState(() => dayjs().toISOString());
   const [vehicleNumberPlates, setVehicleNumberPlates] = useState<string[]>([]);
   const [alertTypes, setAlertTypes] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "resolved">("all");
+  const [hubQuickFilter, setHubQuickFilter] = useState<string | null>(null);
 
-  const vehicleAlerts = useMemo(() => db.alerts.filter(isVehicleAlert), [db.alerts]);
+  const handleHubQuickSelect = (hubId: string | null) => {
+    setHubQuickFilter(hubId);
+    if (!hubId) {
+      setVehicleNumberPlates([]);
+      return;
+    }
+    const platesInHub = db.vehicles
+      .filter((v) => v.hub === hubId)
+      .map((v) => v.reg)
+      .filter(Boolean);
+    setVehicleNumberPlates(platesInHub);
+  };
 
-  const alerts = useMemo(() => {
-    const [start, end] = range;
-    return vehicleAlerts.filter((a) => {
-      const t = dayjs(a.time);
-      if (t.isBefore(start) || t.isAfter(end.endOf("day"))) return false;
-      if (vehicleNumberPlates.length && !vehicleNumberPlates.includes(a.source)) return false;
-      if (alertTypes.length && !alertTypes.includes(a.type)) return false;
-      if (statusFilter === "active" && a.acknowledged) return false;
-      if (statusFilter === "resolved" && !a.acknowledged) return false;
+  // Store-backed replica of useTelemetryAlerts (date window, plates, types
+  // are "server-side" filters in production).
+  const allAlerts = useMemo(() => {
+    const start = dayjs(startDate).startOf("day");
+    const end = dayjs(endDate).endOf("day");
+    return db.alerts.filter((a) => {
+      const t = dayjs(a.createdAt);
+      if (t.isBefore(start) || t.isAfter(end)) return false;
+      if (vehicleNumberPlates.length && !vehicleNumberPlates.includes(a.vehicleLicensePlate))
+        return false;
+      if (alertTypes.length && !alertTypes.includes(a.alertType)) return false;
       return true;
     });
-  }, [vehicleAlerts, range, vehicleNumberPlates, alertTypes, statusFilter]);
-
-  const totalCount = alerts.length;
-
-  const seenPlatesRef = useRef(new Set<string>());
-  const numberPlateOptions = useMemo(() => {
-    for (const a of vehicleAlerts) {
-      if (a.source) seenPlatesRef.current.add(a.source);
-    }
-    return [...seenPlatesRef.current].sort().map((p) => ({ label: p, value: p }));
-  }, [vehicleAlerts]);
-
-  const alertTypeOptions = useMemo(() => {
-    const types = new Set(vehicleAlerts.map((a) => a.type));
-    return [...types].sort().map((t) => ({ label: t, value: t }));
-  }, [vehicleAlerts]);
+  }, [db.alerts, startDate, endDate, vehicleNumberPlates, alertTypes]);
 
   const columns: TableProps<Alert>["columns"] = [
     {
@@ -305,30 +356,37 @@ export default function VehicleWarningsList() {
       key: "vehicle",
       width: 180,
       render: (_, record) => {
-        const vehicle = db.vehicles.find((v) => v.reg === record.source);
+        const ev = db.vehicles.find((v) => v.reg === record.vehicleLicensePlate);
         return (
-          <Link href="/vehicles" style={{ color: "inherit" }}>
-            <Text strong>{record.source || "No Plate"}</Text>
-            {vehicle?.model && (
+          <div
+            style={{ cursor: ev?.id ? "pointer" : "default" }}
+            onClick={() => {
+              if (ev?.id) router.push(`/vehicles/${ev.id}`);
+            }}
+          >
+            <Text strong>{record.vehicleLicensePlate || "No Plate"}</Text>
+            {ev?.model && (
               <>
                 <br />
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  {vehicle.model}
+                  {ev.model}
                 </Text>
               </>
             )}
-          </Link>
+          </div>
         );
       },
     },
     {
       title: "Alert Type",
-      dataIndex: "type",
-      key: "type",
+      dataIndex: "alertType",
+      key: "alert_type",
       width: 200,
-      render: (type: string, record) => (
+      render: (alertType: string, record) => (
         <div className="flex flex-col gap-1">
-          <Tag color={SEVERITY_COLORS[record.severity] || "default"}>{type}</Tag>
+          <Tag color={SEVERITY_COLORS[record.severity] || "default"}>
+            {formatAlertType(alertType)}
+          </Tag>
           <Text type="secondary" style={{ fontSize: 11, textTransform: "capitalize" }}>
             {record.severity}
           </Text>
@@ -339,31 +397,39 @@ export default function VehicleWarningsList() {
       title: "Details",
       key: "details",
       render: (_, record) => (
-        <Text style={{ maxWidth: 420 }} ellipsis={{ tooltip: record.message }}>
-          {record.message}
+        <Text
+          style={{ maxWidth: 420 }}
+          ellipsis={{
+            tooltip: getAlertSummary(record.alertType, record.payload),
+          }}
+        >
+          {getAlertSummary(record.alertType, record.payload)}
         </Text>
       ),
     },
     {
       title: "Triggered At",
-      dataIndex: "time",
-      key: "time",
+      dataIndex: "createdAt",
+      key: "triggered_at",
       width: 220,
-      render: (time: string) => (
+      render: (triggeredAt: string) => (
         <div className="flex items-center gap-1">
           <HiMiniBellAlert className="h-4 w-4 flex-shrink-0" color="#aa7714" />
-          <Text>{fmtDateTime(time)}</Text>
+          <Text>{triggeredAt ? fmtDateTime(triggeredAt) : "N/A"}</Text>
         </div>
       ),
     },
     {
       title: "Status",
       key: "status",
-      width: 200,
+      width: 130,
       render: (_, record) => {
-        if (record.acknowledged) {
+        if (record.resolved) {
+          const resolvedLabel = record.resolvedAt
+            ? `Resolved ${fmtDateTime(record.resolvedAt)}`
+            : "Resolved";
           return (
-            <Tooltip title="This alert has been acknowledged">
+            <Tooltip title={resolvedLabel}>
               <Tag color="green">Resolved</Tag>
             </Tooltip>
           );
@@ -373,17 +439,46 @@ export default function VehicleWarningsList() {
     },
   ];
 
+  const alerts = useMemo(() => {
+    if (statusFilter === "active") return allAlerts.filter((a) => !a.resolved);
+    if (statusFilter === "resolved") return allAlerts.filter((a) => a.resolved);
+    return allAlerts;
+  }, [allAlerts, statusFilter]);
+  const totalCount = alerts.length;
+
+  const seenPlatesRef = useRef(new Set<string>());
+  const numberPlateOptions = useMemo(() => {
+    for (const a of alerts) {
+      if (a.vehicleLicensePlate) seenPlatesRef.current.add(a.vehicleLicensePlate);
+    }
+    return [...seenPlatesRef.current].sort().map((p) => ({ label: p, value: p }));
+  }, [alerts]);
+
   return (
     <>
-      <div className="flex w-full flex-wrap items-center justify-start gap-4" style={{ marginBottom: 16 }}>
+      <div
+        className="flex w-full flex-wrap items-center justify-start gap-4"
+        style={{ marginBottom: 16 }}
+      >
         <RangePicker
           presets={rangePresets}
-          value={range}
+          value={[dayjs(startDate), dayjs(endDate)]}
           style={{ width: 340 }}
           onChange={(value) => {
-            if (value && value[0] && value[1]) setRange([value[0], value[1]]);
+            if (value && value[0] && value[1]) {
+              setStartDate(value[0].toISOString());
+              setEndDate(value[1].toISOString());
+            }
           }}
+          format="DD MMM YYYY"
           allowClear={false}
+        />
+
+        <HubFilter
+          value={hubQuickFilter}
+          onChange={handleHubQuickSelect}
+          placeholder="Hub"
+          style={{ width: 140, minWidth: 140 }}
         />
 
         <Select
@@ -407,7 +502,7 @@ export default function VehicleWarningsList() {
           placeholder="Filter by alert type"
           value={alertTypes}
           onChange={setAlertTypes}
-          options={alertTypeOptions}
+          options={ALERT_TYPE_OPTIONS}
           allowClear
           maxTagCount="responsive"
         />
@@ -445,7 +540,7 @@ export default function VehicleWarningsList() {
             defaultPageSize: PAGE_SIZE,
             showSizeChanger: true,
             pageSizeOptions: ["10", "20", "50", "100"],
-            showTotal: (total, r) => `${r[0]}-${r[1]} of ${total} alerts`,
+            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} alerts`,
             position: ["bottomCenter"],
           }}
           scroll={{ x: "max-content" }}

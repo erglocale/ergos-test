@@ -2,6 +2,8 @@
 
 import {
   Button,
+  Select,
+  Switch,
   Table,
   Tabs,
   Tag,
@@ -10,10 +12,17 @@ import {
   message,
 } from "antd";
 import type { TableProps } from "antd";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ConfirmAcceptDialog from "@/components/suggestions/ConfirmAcceptDialog";
 import type { CapRow, NudgeRow } from "@/components/suggestions/derive";
 import { deriveCapRows, deriveNudges } from "@/components/suggestions/derive";
+import {
+  ANALYTICS_API,
+  fetchGroups,
+  fetchLiveCapRows,
+  fetchLiveNudges,
+  type LiveGroup,
+} from "@/components/suggestions/liveApi";
 import SuggestionDrawer, {
   DrawerRecord,
 } from "@/components/suggestions/SuggestionDrawer";
@@ -85,9 +94,11 @@ const nudgeColumns: TableProps<NudgeRow>["columns"] = [
 
 function ChargingTab({
   nudges,
+  loading,
   onRowClick,
 }: {
   nudges: NudgeRow[];
+  loading?: boolean;
   onRowClick: (row: NudgeRow) => void;
 }) {
   return (
@@ -102,6 +113,7 @@ function ChargingTab({
       <Table
         rowKey="evId"
         size="middle"
+        loading={loading}
         columns={nudgeColumns}
         dataSource={nudges}
         pagination={false}
@@ -128,10 +140,12 @@ function formatUpdated(iso: string | null | undefined): string {
 
 function CapTab({
   rows,
+  loading,
   onRowClick,
   onApply,
 }: {
   rows: CapRow[];
+  loading?: boolean;
   onRowClick: (row: CapRow) => void;
   onApply: (row: CapRow) => void;
 }) {
@@ -169,23 +183,6 @@ function CapTab({
         ),
     },
     {
-      title: "Status",
-      key: "status",
-      render: (_v, row) => (
-        <Tag
-          color={
-            row.status === "Applied"
-              ? "green"
-              : row.status === "Dismissed"
-                ? "default"
-                : "orange"
-          }
-        >
-          {row.status}
-        </Tag>
-      ),
-    },
-    {
       title: "Updated",
       key: "updated",
       render: (_v, row) => (
@@ -207,17 +204,18 @@ function CapTab({
       key: "accept",
       align: "right",
       render: (_v, row) =>
-        row.socLimit?.suggested_cap != null && row.status === "New" ? (
-          <span onClick={(e) => e.stopPropagation()}>
-            <Button
-              size="small"
-              type="primary"
-              style={{ background: ORANGE, borderColor: ORANGE }}
-              onClick={() => setAcceptTarget(row)}
-            >
-              Accept
-            </Button>
-          </span>
+        row.socLimit?.suggested_cap != null ? (
+          <Button
+            size="small"
+            type="primary"
+            style={{ background: ORANGE, borderColor: ORANGE }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setAcceptTarget(row);
+            }}
+          >
+            Accept
+          </Button>
         ) : null,
     },
   ];
@@ -225,8 +223,9 @@ function CapTab({
   return (
     <div>
       <Table
-        rowKey="suggestionId"
+        rowKey="evId"
         size="middle"
+        loading={loading}
         columns={capColumns}
         dataSource={rows}
         pagination={false}
@@ -257,8 +256,76 @@ export default function Suggestions() {
   const [selected, setSelected] = useState<DrawerRecord | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
 
-  const nudges = useMemo(() => deriveNudges(db.vehicles), [db.vehicles]);
-  const capRows = useMemo(() => deriveCapRows(db), [db]);
+  // -- Live mode: read real published suggestions from the analytics API ----
+  // Sandbox-only control. Off = deterministic localStorage fixtures; on = the
+  // rows analytics-ui actually published to the suggestion schema.
+  const [live, setLive] = useState(false);
+  const [groups, setGroups] = useState<LiveGroup[]>([]);
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [liveCaps, setLiveCaps] = useState<CapRow[]>([]);
+  const [liveNudges, setLiveNudges] = useState<NudgeRow[]>([]);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const erroredRef = useRef(false);
+
+  const liveError = () => {
+    // One toast per failure streak, not one per 60s poll.
+    if (erroredRef.current) return;
+    erroredRef.current = true;
+    messageApi.error(
+      "Couldn't reach the analytics API — check the connection and try again.",
+    );
+  };
+
+  useEffect(() => {
+    if (!live || groups.length) return;
+    fetchGroups()
+      .then((gs) => {
+        setGroups(gs);
+        const eco = gs.find((g) => g.name.toLowerCase().includes("eco"));
+        setGroupId((cur) => cur ?? eco?.id ?? gs[0]?.id ?? null);
+      })
+      .catch(liveError);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, groups.length]);
+
+  useEffect(() => {
+    if (!live || !groupId) return;
+    let cancelled = false;
+    setLiveLoading(true);
+    Promise.all([fetchLiveCapRows(groupId), fetchLiveNudges(groupId)])
+      .then(([caps, nudges]) => {
+        if (cancelled) return;
+        erroredRef.current = false;
+        setLiveCaps(caps);
+        setLiveNudges(nudges);
+      })
+      .catch(() => {
+        if (!cancelled) liveError();
+      })
+      .finally(() => {
+        if (!cancelled) setLiveLoading(false);
+      });
+    // Each preview call runs the full allocator server-side, so poll gently
+    // (the real allocator ticks every ~15–30 min anyway).
+    const timer = window.setInterval(() => {
+      fetchLiveNudges(groupId)
+        .then((nudges) => {
+          if (!cancelled) setLiveNudges(nudges);
+        })
+        .catch(() => {});
+    }, 300_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, groupId]);
+
+  const demoNudges = useMemo(() => deriveNudges(db.vehicles), [db.vehicles]);
+  const demoCapRows = useMemo(() => deriveCapRows(db), [db]);
+
+  const nudges = live ? liveNudges : demoNudges;
+  const capRows = live ? liveCaps : demoCapRows;
 
   const applySuggestion = (row: CapRow) => {
     if (row.socLimit?.suggested_cap == null) return;
@@ -282,6 +349,7 @@ export default function Suggestions() {
       children: (
         <ChargingTab
           nudges={nudges}
+          loading={live && liveLoading}
           onRowClick={(row) => setSelected({ ...row, kind: "charge" })}
         />
       ),
@@ -292,6 +360,7 @@ export default function Suggestions() {
       children: (
         <CapTab
           rows={capRows}
+          loading={live && liveLoading}
           onRowClick={(row) => setSelected({ ...row, kind: "cap" })}
           onApply={applySuggestion}
         />
@@ -302,9 +371,47 @@ export default function Suggestions() {
   return (
     <div style={{ marginLeft: 16, marginRight: 16 }}>
       {contextHolder}
-      <Title level={3} style={{ marginBottom: 2 }}>
-        Charging Suggestions
-      </Title>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <Title level={3} style={{ marginBottom: 2 }}>
+          Charging Suggestions
+        </Title>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {live && groups.length ? (
+            <Select
+              size="small"
+              style={{ minWidth: 180 }}
+              value={groupId}
+              onChange={setGroupId}
+              options={groups.map((g) => ({ value: g.id, label: g.name }))}
+            />
+          ) : null}
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            Live data
+          </Text>
+          <Tooltip
+            title={
+              ANALYTICS_API
+                ? ""
+                : "Set NEXT_PUBLIC_ANALYTICS_API in .env.local and restart the dev server."
+            }
+          >
+            <Switch
+              size="small"
+              checked={live}
+              disabled={!ANALYTICS_API}
+              onChange={setLive}
+            />
+          </Tooltip>
+        </div>
+      </div>
 
       <div style={{ marginTop: 8 }}>
         <Tabs defaultActiveKey="charging" items={tabs} />
