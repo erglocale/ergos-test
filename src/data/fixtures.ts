@@ -41,9 +41,6 @@ const DRIVER_NAMES = [
   "Dipak Boro",
   "Manoj Sharma",
   "Bikash Deka",
-  "Jitu Gogoi",
-  "Rahul Nath",
-  "Anup Rabha",
 ];
 
 const MAKES = [
@@ -67,48 +64,44 @@ export function makeFixtures(now = dayjs()): Db {
     { model: "AC001", vendor: "EVRE", powerKw: 3, type: "3PIN" as const },
     { model: "HALO", vendor: "EVRE", powerKw: 3, type: "3PIN" as const },
   ];
-  let cpIdx = 0;
-  for (const hub of HUBS) {
-    const place = hub.name.replace(/ (Hub|Depot)$/, "");
-    for (let i = 0; i < 3; i += 1) {
-      cpIdx += 1;
-      const m = cpModels[(cpIdx + i) % cpModels.length];
-      const offline = cpIdx === 5;
-      // One faulted connector on an online charger feeds the charger-warnings feed.
-      const faultedConn = cpIdx === 3;
-      chargepoints.push({
-        id: `CP-${String(cpIdx).padStart(3, "0")}`,
-        name: `CP-${i + 1}, ${place}`,
-        hub: hub.name,
-        serial: `ERG${2024000 + cpIdx * 17}`,
-        model: m.model,
-        vendor: m.vendor,
-        status: offline ? "Offline" : "Online",
-        connectors: [
-          {
-            id: 1,
-            type: m.type,
-            powerKw: m.powerKw,
-            status: offline
-              ? ("Unavailable" as const)
-              : faultedConn
-                ? ("Faulted" as const)
-                : ("Available" as const),
-          },
-        ],
-        address: hub.address,
-        lat: round2(hub.lat + between(-0.002, 0.002)) ,
-        lng: round2(hub.lng + between(-0.002, 0.002)),
-        tariffPerKwh: 9.5,
-        createdAt: now.subtract(int(200, 400), "day").toISOString(),
-      });
-    }
-  }
+  // One charger per hub: Beltola's has 3 connectors (one faulted — feeds the
+  // charger-warnings feed), Six Mile keeps a single-connector unit.
+  const cpSpecs = [
+    { hub: HUBS[0], connectorCount: 3, faultedConnectorId: 3 },
+    { hub: HUBS[1], connectorCount: 1, faultedConnectorId: null },
+  ];
+  cpSpecs.forEach((spec, i) => {
+    const place = spec.hub.name.replace(/ (Hub|Depot)$/, "");
+    const m = cpModels[i % cpModels.length];
+    chargepoints.push({
+      id: `CP-${String(i + 1).padStart(3, "0")}`,
+      name: `CP-1, ${place}`,
+      hub: spec.hub.name,
+      serial: `ERG${2024000 + (i + 1) * 17}`,
+      model: m.model,
+      vendor: m.vendor,
+      status: "Online",
+      connectors: Array.from({ length: spec.connectorCount }, (_, ci) => ({
+        id: ci + 1,
+        type: m.type,
+        powerKw: m.powerKw,
+        status:
+          ci + 1 === spec.faultedConnectorId
+            ? ("Faulted" as const)
+            : ("Available" as const),
+      })),
+      address: spec.hub.address,
+      lat: round2(spec.hub.lat + between(-0.002, 0.002)),
+      lng: round2(spec.hub.lng + between(-0.002, 0.002)),
+      tariffPerKwh: 9.5,
+      createdAt: now.subtract(int(200, 400), "day").toISOString(),
+    });
+  });
 
   // ---- vehicles + drivers -------------------------------------------------
   const vehicles: Vehicle[] = [];
   const drivers: Driver[] = [];
-  for (let i = 0; i < 12; i += 1) {
+  for (let i = 0; i < 6; i += 1) {
     const spec = MAKES[i % MAKES.length];
     const hub = HUBS[i % HUBS.length];
     const reg = `AS01SC${String(300 + i * 7).padStart(4, "0")}`;
@@ -140,7 +133,7 @@ export function makeFixtures(now = dayjs()): Db {
         email: `${driver.toLowerCase().replace(" ", ".")}@erglocale.com`,
         licenseNo: `AS01 ${int(2015, 2023)}00${int(10000, 99999)}`,
         vehicleReg: reg,
-        status: i === 7 ? "Inactive" : "Active",
+        status: i === 4 ? "Inactive" : "Active",
         joinedAt: now.subtract(int(100, 500), "day").toISOString(),
         address: `House ${int(2, 88)}, ${pick(["Beltola Tiniali", "Six Mile", "Hatigaon Rd", "Ganeshguri", "Dispur Last Gate"])}`,
         city: "Guwahati",
@@ -150,10 +143,10 @@ export function makeFixtures(now = dayjs()): Db {
     }
   }
 
-  // ---- trips (last 30 days) ----------------------------------------------
+  // ---- trips (last 14 days) ----------------------------------------------
   const trips: Trip[] = [];
   let tripId = 0;
-  for (let d = 30; d >= 0; d -= 1) {
+  for (let d = 14; d >= 0; d -= 1) {
     const day = now.subtract(d, "day");
     for (const v of vehicles) {
       if (rand() < 0.35) continue; // day off
@@ -185,7 +178,7 @@ export function makeFixtures(now = dayjs()): Db {
   }
   trips.sort((a, b) => (a.startTime < b.startTime ? 1 : -1));
 
-  // ---- charging sessions (last 30 days) ----------------------------------
+  // ---- charging sessions (last 14 days) ----------------------------------
   // Value ranges taken from the real fleet's OCPP sessions: slow 3.3 kW
   // top-ups of small batteries — mostly 0.4–4.5 kWh over 15 min–2.5 h, the
   // odd plug-in that draws ~nothing, stop reason almost always
@@ -193,16 +186,24 @@ export function makeFixtures(now = dayjs()): Db {
   const sessions: ChargingSession[] = [];
   let sesId = 0;
   const usableCps = chargepoints.filter(
-    (c) => c.status === "Online" && c.connectors.every((cn) => cn.status !== "Faulted"),
+    (c) => c.status === "Online" && c.connectors.some((cn) => cn.status === "Available"),
   );
-  for (let d = 30; d >= 0; d -= 1) {
+  // Older history may sit on any online charger and any connector (the fault
+  // is recent); current sessions stick to available connectors.
+  const onlineCps = chargepoints.filter((c) => c.status === "Online");
+  const availableConnector = (c: Chargepoint) =>
+    pick(c.connectors.filter((cn) => cn.status === "Available"));
+  for (let d = 14; d >= 0; d -= 1) {
     const day = now.subtract(d, "day");
     for (const v of vehicles) {
       if (rand() < 0.45) continue;
       sesId += 1;
-      const cp = pick(usableCps);
-      const connector = cp.connectors[0];
+      const cp = pick(d >= 2 ? onlineCps : usableCps);
+      const connector = d >= 2 ? pick(cp.connectors) : availableConnector(cp);
       const start = day.hour(pick([20, 21, 22, 13])).minute(int(0, 59));
+      // Never fabricate sessions that haven't started yet — a "tonight 8 pm"
+      // slot on day 0 would otherwise appear as a future ongoing session.
+      if (d === 0 && start.isAfter(now)) continue;
       const socStart = int(20, 65);
       const dud = rand() < 0.08; // plugged in but drew ~nothing
       const maxEnergy = Math.min(4.5, ((v.socCapPct - socStart) / 100) * v.batteryKwh);
@@ -232,6 +233,72 @@ export function makeFixtures(now = dayjs()): Db {
         stopReason: ongoing ? null : faulted ? "PowerLoss" : pick(["EVDisconnected", "EVDisconnected", "EVDisconnected", "Remote"]),
       });
     }
+  }
+  // Completed sessions that ended shortly before now on every online charger,
+  // so the schedule calendar shows recent history without scrolling. Ends are
+  // placed first (25 min / ~2 h ago), then the start is derived from duration.
+  const recentEndMinsAgo = [() => int(25, 75), () => int(110, 200)];
+  for (const cp of onlineCps) {
+    for (const endMinsAgo of recentEndMinsAgo) {
+      sesId += 1;
+      const v = pick(vehicles);
+      const connector = availableConnector(cp);
+      const energy = round2(between(0.6, 3.5));
+      const durMin = Math.round((energy / connector.powerKw) * 60) + int(8, 25);
+      const end = now.subtract(endMinsAgo(), "minute");
+      const start = end.subtract(durMin, "minute");
+      const socStart = int(25, 60);
+      sessions.push({
+        id: `CS-${String(sesId).padStart(5, "0")}`,
+        chargerId: cp.id,
+        chargerName: cp.name,
+        connectorId: connector.id,
+        vehicleReg: v.reg,
+        driverName: drivers.find((dr) => dr.vehicleReg === v.reg)?.name ?? "—",
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        energyKwh: energy,
+        socStart,
+        socEnd: Math.min(v.socCapPct, socStart + Math.round((energy / v.batteryKwh) * 100)),
+        cost: 0,
+        status: "Completed",
+        stopReason: pick(["EVDisconnected", "EVDisconnected", "Remote"]),
+      });
+    }
+  }
+  // One guaranteed live session on a healthy charger, so the ongoing badge,
+  // live-status card and calendar always have a fixture example too.
+  {
+    sesId += 1;
+    const cp = usableCps[0];
+    const connector = availableConnector(cp);
+    const v = vehicles[1];
+    const elapsedMin = int(25, 50);
+    const start = now.subtract(elapsedMin, "minute");
+    const socStart = int(25, 50);
+    // SoC gained so far must match the elapsed time at the connector's power.
+    const gainedPct = Math.round(
+      (((connector.powerKw * elapsedMin) / 60) / v.batteryKwh) * 100,
+    );
+    sessions.push({
+      id: `CS-${String(sesId).padStart(5, "0")}`,
+      chargerId: cp.id,
+      chargerName: cp.name,
+      connectorId: connector.id,
+      vehicleReg: v.reg,
+      driverName: drivers.find((dr) => dr.vehicleReg === v.reg)?.name ?? "—",
+      startTime: start.toISOString(),
+      endTime: null,
+      energyKwh: round2((connector.powerKw * elapsedMin) / 60),
+      socStart,
+      socEnd: null,
+      cost: 0,
+      status: "Ongoing",
+      stopReason: null,
+    });
+    // Keep the vehicle's state consistent with its live session.
+    v.status = "Charging";
+    v.soc = Math.min(v.socCapPct, socStart + gainedPct);
   }
   sessions.sort((a, b) => (a.startTime < b.startTime ? 1 : -1));
 
@@ -295,7 +362,7 @@ export function makeFixtures(now = dayjs()): Db {
     }
     return alertSpecs[0];
   };
-  const alerts: Alert[] = Array.from({ length: 60 }, (_, i) => {
+  const alerts: Alert[] = Array.from({ length: 30 }, (_, i) => {
     // First pass guarantees every real type appears at least once (the
     // weighted draw alone can leave the rare ones out); rest follow the
     // real overspeed-heavy distribution.

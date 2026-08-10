@@ -32,7 +32,8 @@ export default function DashboardMap({
     vehicles: google.maps.Marker[];
     chargers: google.maps.Marker[];
     labels: google.maps.Marker[];
-  }>({ vehicles: [], chargers: [], labels: [] });
+    hubs: google.maps.Marker[];
+  }>({ vehicles: [], chargers: [], labels: [], hubs: [] });
   const clusterRef = useRef<{
     vehicles: MarkerClusterer | null;
     chargers: MarkerClusterer | null;
@@ -42,6 +43,7 @@ export default function DashboardMap({
   const [ready, setReady] = useState(false);
   const [showChargers, setShowChargers] = useState(true);
   const [showVehicles, setShowVehicles] = useState(true);
+  const [showHubs, setShowHubs] = useState(true);
 
   // ─── Init ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -87,7 +89,8 @@ export default function DashboardMap({
       clusterRef.current.vehicles.setMap(null);
     }
     markersRef.current.labels.forEach((m) => m.setMap(null));
-    markersRef.current = { vehicles: [], chargers: [], labels: [] };
+    markersRef.current.hubs.forEach((m) => m.setMap(null));
+    markersRef.current = { vehicles: [], chargers: [], labels: [], hubs: [] };
     clusterRef.current = { vehicles: null, chargers: null };
   }, []);
 
@@ -239,6 +242,88 @@ export default function DashboardMap({
       count++;
     });
 
+    // Hub markers (demo spec item 2): a pill per hub with a pie showing the
+    // share of connectors currently in use (ongoing sessions vs connectors).
+    const ongoingByCharger = new Map<string, number>();
+    db.sessions.forEach((s) => {
+      if (s.endTime === null) {
+        ongoingByCharger.set(s.chargerId, (ongoingByCharger.get(s.chargerId) ?? 0) + 1);
+      }
+    });
+    const hubStats = new Map<
+      string,
+      { latSum: number; lngSum: number; n: number; total: number; inUse: number }
+    >();
+    db.chargepoints.forEach((cp) => {
+      if (!cp.lat || !cp.lng) return;
+      const stat =
+        hubStats.get(cp.hub) ?? { latSum: 0, lngSum: 0, n: 0, total: 0, inUse: 0 };
+      stat.latSum += cp.lat;
+      stat.lngSum += cp.lng;
+      stat.n += 1;
+      stat.total += cp.connectors.length;
+      stat.inUse += Math.min(
+        cp.connectors.length,
+        ongoingByCharger.get(cp.id) ?? 0,
+      );
+      hubStats.set(cp.hub, stat);
+    });
+
+    const hubMarkers: google.maps.Marker[] = [];
+    hubStats.forEach((stat, hub) => {
+      const pct = stat.total > 0 ? (stat.inUse / stat.total) * 100 : 0;
+      const label = `${hub.replace(/&/g, "&amp;")} · ${Math.round(pct)}%`;
+      const w = Math.round(40 + label.length * 6.4);
+      const cx = 16;
+      const cy = 15;
+      const r = 9;
+      const angle = Math.min(359.99, pct * 3.6);
+      const rad = ((angle - 90) * Math.PI) / 180;
+      const ex = cx + r * Math.cos(rad);
+      const ey = cy + r * Math.sin(rad);
+      const largeArc = angle > 180 ? 1 : 0;
+      const slice =
+        pct >= 100
+          ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#16a34a"/>`
+          : pct <= 0
+            ? ""
+            : `<path d="M ${cx} ${cy} L ${cx} ${cy - r} A ${r} ${r} 0 ${largeArc} 1 ${ex.toFixed(2)} ${ey.toFixed(2)} Z" fill="#16a34a"/>`;
+      const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="30">` +
+        `<rect x="1" y="1" width="${w - 2}" height="28" rx="14" fill="white" stroke="#d1d5db"/>` +
+        `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#e5e7eb"/>` +
+        slice +
+        `<text x="30" y="19" font-family="sans-serif" font-size="11" font-weight="600" fill="#374151">${label}</text>` +
+        `</svg>`;
+
+      const marker = new gm.Marker({
+        position: { lat: stat.latSum / stat.n, lng: stat.lngSum / stat.n },
+        map: showHubs ? map : null,
+        title: hub,
+        icon: {
+          url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+          anchor: new gm.Point(w / 2, 15),
+        },
+        zIndex: 60,
+      });
+      marker.addListener("click", () => {
+        info.setContent(
+          `<div style="font-family:sans-serif;padding:4px;min-width:120px">` +
+            `<strong>${hub}</strong>` +
+            `<br/><span style="font-size:12px;color:#666">${stat.inUse} of ${stat.total} connectors in use (${Math.round(pct)}%)</span>` +
+            `<br/><span style="font-size:12px;color:#666">${stat.n} charger${stat.n === 1 ? "" : "s"}</span>` +
+            `<br/><a href="/hubs/${encodeURIComponent(hub)}" style="font-size:12px;color:#f97417;font-weight:600">View hub →</a>` +
+            `</div>`,
+        );
+        info.open(map, marker);
+      });
+      marker.addListener("dblclick", () =>
+        router.push(`/hubs/${encodeURIComponent(hub)}`),
+      );
+      hubMarkers.push(marker);
+    });
+    markersRef.current.hubs = hubMarkers;
+
     markersRef.current.vehicles = vehicleMarkers;
     markersRef.current.labels = vehicleLabels;
 
@@ -277,7 +362,7 @@ export default function DashboardMap({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db.chargepoints, db.vehicles, router, clearAll]);
+  }, [db.chargepoints, db.vehicles, db.sessions, router, clearAll]);
 
   useEffect(() => {
     if (!ready || !mapRef.current) return;
@@ -312,6 +397,15 @@ export default function DashboardMap({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showVehicles]);
+
+  // ─── Toggle hubs ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!ready) return;
+    markersRef.current.hubs.forEach((m) =>
+      m.setMap(showHubs ? mapRef.current : null),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHubs]);
 
   // ─── Slide to vehicle from table row click ───────────────────────
   useEffect(() => {
@@ -377,6 +471,12 @@ export default function DashboardMap({
             <div className="map-switch-thumb" />
           </div>
           <span>Chargers</span>
+        </div>
+        <div className="map-toggle-row" onClick={() => setShowHubs((v) => !v)}>
+          <div className={`map-switch ${showHubs ? "map-switch-on" : ""}`}>
+            <div className="map-switch-thumb" />
+          </div>
+          <span>Hubs</span>
         </div>
         <div className="map-legend-divider" />
         <div className="map-legend-row">

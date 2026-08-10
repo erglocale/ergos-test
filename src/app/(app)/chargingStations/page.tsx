@@ -1,10 +1,11 @@
 "use client";
 
-import { Button, Card, message, Popconfirm, QRCode, Select, Table, Tabs, Tag, Typography } from "antd";
+import { Button, message, Popconfirm, QRCode, Select, Table, Tabs, Tag, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import dayjs from "dayjs";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import ChargerScheduleCalendar from "@/components/chargers/ChargerScheduleCalendar";
 import { deriveCharger, qrUrlForCharger } from "@/components/chargers/derive";
 import { useDb } from "@/data/store";
 import type { Chargepoint } from "@/data/types";
@@ -29,7 +30,7 @@ function OnlineDot({ online }: { online: boolean }) {
 export default function Chargepoints() {
   const db = useDb();
   const [hubFilter, setHubFilter] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("2");
+  const [activeTab, setActiveTab] = useState("1");
 
   const hubs = useMemo(
     () => Array.from(new Set(db.chargepoints.map((cp) => cp.hub))),
@@ -55,11 +56,6 @@ export default function Chargepoints() {
           <>
             <OnlineDot online={station.status === "Online"} />
             <Link href={`/chargingStations/${station.id}`}>{station.id}</Link>
-            {derived.isSmartCharger && (
-              <Tag color="blue" style={{ fontWeight: 600, marginLeft: "14px" }}>
-                Smart Charger
-              </Tag>
-            )}
           </>
         );
       },
@@ -165,30 +161,7 @@ export default function Chargepoints() {
     {
       key: "1",
       label: "All",
-      children: (
-        <Card
-          style={{
-            width: "100%",
-            borderRadius: "12px",
-            boxShadow: "0 2px 6px rgba(0, 0, 0, 0.04)",
-            overflow: "hidden",
-            border: "1px solid #f0f0f0",
-          }}
-          styles={{ body: { padding: 0 } }}
-          hoverable
-        >
-          <Table
-            columns={columns}
-            dataSource={data}
-            rowKey="id"
-            pagination={false}
-            scroll={{ x: 1500, y: "70vh" }}
-            bordered={false}
-            rowClassName={() => "custom-table-row"}
-            className="styled-drivers-table"
-          />
-        </Card>
-      ),
+      children: <ChargerScheduleCalendar chargers={data} />,
     },
     {
       key: "2",

@@ -1,14 +1,18 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import type { EnergyOverlay } from "./energyBrain";
 import { makeFixtures } from "./fixtures";
 import type { CollectionKey, Db, Profile } from "./types";
 
 // All demo data lives in localStorage under this key. CRUD mutates it in
 // place and notifies subscribers; "Reset demo data" just deletes the key.
-const DB_KEY = "ergos-test:db:v5";
+const DB_KEY = "ergos-test:db:v12";
 
 let cache: Db | null = null;
+// Live rows from energy-brain, merged (not persisted) on top of the fixtures.
+let energyOverlay: EnergyOverlay | null = null;
+let merged: Db | null = null;
 const listeners = new Set<() => void>();
 
 function seed(): Db {
@@ -36,6 +40,7 @@ function load(): Db {
           patched = true;
         }
       }
+      if (reanchorLiveSessions(stored as Db)) patched = true;
       cache = stored as Db;
       if (patched) persist();
       return cache;
@@ -46,6 +51,30 @@ function load(): Db {
   cache = seed();
   persist();
   return cache;
+}
+
+/**
+ * Fixture sessions are frozen at seed time, but an ongoing one is drawn from
+ * its start up to the current moment — so hours after seeding it would stretch
+ * across the whole calendar. Pull any stale live session back to a plausible
+ * recent start. Returns true when something changed.
+ */
+function reanchorLiveSessions(db: Db): boolean {
+  const MAX_LIVE_MIN = 90;
+  const now = Date.now();
+  let changed = false;
+  for (const s of db.sessions) {
+    if (s.endTime !== null) continue;
+    const elapsedMin = (now - new Date(s.startTime).getTime()) / 60_000;
+    if (elapsedMin <= MAX_LIVE_MIN) continue;
+    const freshMin = 25 + Math.floor(Math.random() * 25);
+    s.startTime = new Date(now - freshMin * 60_000).toISOString();
+    const cp = db.chargepoints.find((c) => c.id === s.chargerId);
+    const kw = cp?.connectors.find((cn) => cn.id === s.connectorId)?.powerKw ?? 3;
+    s.energyKwh = Math.round(((kw * freshMin) / 60) * 100) / 100;
+    changed = true;
+  }
+  return changed;
 }
 
 function persist() {
@@ -59,11 +88,29 @@ function persist() {
 
 function notify() {
   persist();
+  merged = null;
+  listeners.forEach((l) => l());
+}
+
+/** Replace the energy-brain overlay (null clears it). Called by the poller. */
+export function setEnergyOverlay(overlay: EnergyOverlay | null): void {
+  energyOverlay = overlay;
+  merged = null;
   listeners.forEach((l) => l());
 }
 
 export function getDb(): Db {
-  return load();
+  const base = load();
+  if (!energyOverlay) return base;
+  if (!merged) {
+    merged = {
+      ...base,
+      vehicles: [...energyOverlay.vehicles, ...base.vehicles],
+      chargepoints: [...energyOverlay.chargepoints, ...base.chargepoints],
+      sessions: [...energyOverlay.sessions, ...base.sessions],
+    };
+  }
+  return merged;
 }
 
 export function subscribe(listener: () => void): () => void {

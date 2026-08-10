@@ -5,9 +5,14 @@ const nextConfig: NextConfig = {
   // same-origin: immune to CORS and to ad blockers that kill cross-origin
   // requests to *analytics* hostnames. The real URL stays in .env.local.
   async rewrites() {
-    const api = process.env.NEXT_PUBLIC_ANALYTICS_API;
-    if (!api) return [];
-    return [{ source: "/live-api/:path*", destination: `${api}/:path*` }];
+    const rules = [];
+    const analytics = process.env.NEXT_PUBLIC_ANALYTICS_API;
+    if (analytics) {
+      rules.push({ source: "/live-api/:path*", destination: `${analytics}/:path*` });
+    }
+    // energy-brain is proxied by the /energy-api route handler instead of a
+    // rewrite: FastAPI's trailing-slash redirects must be followed server-side.
+    return rules;
   },
 };
 

@@ -15,10 +15,11 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AiFillHome } from "react-icons/ai";
 import { BiTrip } from "react-icons/bi";
-import { FaAddressCard, FaWrench } from "react-icons/fa";
+import { FaAddressCard, FaWarehouse, FaWrench } from "react-icons/fa";
 import { ImPower } from "react-icons/im";
 import { MdEvStation } from "react-icons/md";
 import { TbReportAnalytics } from "react-icons/tb";
+import EnergyBrainSync from "@/components/energy/EnergyBrainSync";
 import { useDb } from "@/data/store";
 
 const { Sider, Content } = Layout;
@@ -32,6 +33,7 @@ const MENU_ITEMS = [
   { label: "Charging Sessions", icon: <ImPower style={ICON_COLOR} />, href: "/chargingSessions" },
   { label: "Trips", icon: <BiTrip style={ICON_COLOR} />, href: "/trips" },
   { label: "Chargepoints", icon: <MdEvStation style={ICON_COLOR} />, href: "/chargingStations" },
+  { label: "Hubs", icon: <FaWarehouse style={ICON_COLOR} />, href: "/hubs" },
   { label: "Drivers", icon: <FaAddressCard style={ICON_COLOR} />, href: "/drivers" },
   { label: "Maintenance", icon: <FaWrench style={ICON_COLOR} />, href: "/maintenance" },
   { label: "Reports", icon: <TbReportAnalytics style={ICON_COLOR} />, href: "/reports" },
@@ -69,6 +71,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <Layout className="h-screen">
+      <EnergyBrainSync />
       <Sider
         style={{
           overflow: "none",

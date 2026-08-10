@@ -180,11 +180,6 @@ export default function Details() {
         <Text>
           <StatusDot online={online} />
           {online ? <Tag color="green">Online</Tag> : <Tag color="red">Offline</Tag>}
-          {derived.isSmartCharger && (
-            <Tag color="blue" style={{ fontWeight: 600 }}>
-              Smart Charger
-            </Tag>
-          )}
         </Text>
       </div>
 

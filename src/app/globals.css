@@ -21,3 +21,20 @@ body {
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
 }
+
+/* Glow animation for the Live Vehicle Charging Status progress bar
+   (production: VehicleChargingStatusAndHistory.jsx react-jss keyframes). */
+@keyframes liveChargeGlow {
+  from {
+    box-shadow:
+      inset 0 0 5px #22c55e,
+      inset 0 0 10px #22c55e,
+      inset 0 0 15px #22c55e;
+  }
+  to {
+    box-shadow:
+      inset 0 0 20px #a3f3b2,
+      inset 0 0 30px #a3f3b2,
+      inset 0 0 40px #ffffff;
+  }
+}

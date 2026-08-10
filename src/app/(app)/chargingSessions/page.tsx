@@ -2,6 +2,7 @@
 
 import { Col, Row, Tabs } from "antd";
 import { useState } from "react";
+import LiveVehicleChargingStatus from "@/components/charging-sessions/LiveVehicleChargingStatus";
 import SessionsAnalytics from "@/components/charging-sessions/SessionsAnalytics";
 import SessionsList from "@/components/charging-sessions/SessionsList";
 
@@ -19,11 +20,16 @@ export default function ChargingSessions() {
             key: "1",
             label: "Charging Sessions",
             children: (
-              <Row gutter={[14, 14]} style={{ marginTop: "20px", marginBottom: "20px" }}>
-                <Col span={24} style={{ marginBottom: "20px" }}>
-                  <SessionsList />
-                </Col>
-              </Row>
+              <>
+                <div style={{ marginTop: "30px" }}>
+                  <LiveVehicleChargingStatus />
+                </div>
+                <Row gutter={[14, 14]} style={{ marginTop: "20px", marginBottom: "20px" }}>
+                  <Col span={24} style={{ marginBottom: "20px" }}>
+                    <SessionsList />
+                  </Col>
+                </Row>
+              </>
             ),
           },
           {
