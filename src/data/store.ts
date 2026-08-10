@@ -55,10 +55,12 @@ function load(): Db {
 }
 
 /**
- * Fixture sessions are frozen at seed time, but an ongoing one is drawn from
- * its start up to the current moment — so hours after seeding it would stretch
- * across the whole calendar. Pull any stale live session back to a plausible
- * recent start. Returns true when something changed.
+ * An ongoing session is drawn from its start up to the current moment, so one
+ * left open while the tab was closed would stretch across the whole calendar.
+ * Pull it back — but never by discarding what the simulator delivered. The new
+ * start is derived FROM the accumulated energy, so the block is exactly as long
+ * as that energy takes at the connector's power and every number still agrees.
+ * Returns true when something changed.
  */
 function reanchorLiveSessions(db: Db): boolean {
   const MAX_LIVE_MIN = 90;
@@ -68,11 +70,11 @@ function reanchorLiveSessions(db: Db): boolean {
     if (s.endTime !== null) continue;
     const elapsedMin = (now - new Date(s.startTime).getTime()) / 60_000;
     if (elapsedMin <= MAX_LIVE_MIN) continue;
-    const freshMin = 25 + Math.floor(Math.random() * 25);
-    s.startTime = new Date(now - freshMin * 60_000).toISOString();
     const cp = db.chargepoints.find((c) => c.id === s.chargerId);
     const kw = cp?.connectors.find((cn) => cn.id === s.connectorId)?.powerKw ?? 3;
-    s.energyKwh = Math.round(((kw * freshMin) / 60) * 100) / 100;
+    const impliedMin = kw > 0 ? (s.energyKwh / kw) * 60 : 0;
+    const freshMin = Math.min(MAX_LIVE_MIN, Math.max(5, Math.round(impliedMin)));
+    s.startTime = new Date(now - freshMin * 60_000).toISOString();
     changed = true;
   }
   return changed;
@@ -126,6 +128,54 @@ let simSnapshot: ReadonlyMap<string, SimState> = new Map();
 /** localStorage is only rewritten this often, not on every 5 s step. */
 const SIM_PERSIST_MS = 30_000;
 let lastSimPersist = 0;
+// Kept out of DB_KEY: this is derived state that must survive a reload, but it
+// also covers energy-brain sessions, which never belong in the fixture db.
+const SIM_KEY = "ergos-test:sim:v1";
+let simLoaded = false;
+
+function loadSimStates(): void {
+  if (simLoaded || typeof window === "undefined") return;
+  simLoaded = true;
+  try {
+    const raw = window.localStorage.getItem(SIM_KEY);
+    if (!raw) return;
+    const stored = JSON.parse(raw) as Record<string, Partial<SimState>>;
+    for (const [id, st] of Object.entries(stored)) {
+      if (typeof st?.energyKwh === "number" && typeof st?.updatedAt === "number") {
+        simStates.set(id, {
+          energyKwh: st.energyKwh,
+          soc: st.soc ?? 0,
+          powerKw: st.powerKw ?? 0,
+          updatedAt: st.updatedAt,
+          finished: st.finished ?? false,
+        });
+      }
+    }
+    simSnapshot = new Map(simStates);
+  } catch {
+    // corrupt sim state — start the integrator from the stored rows instead
+  }
+}
+
+function persistSimStates(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SIM_KEY, JSON.stringify(Object.fromEntries(simStates)));
+  } catch {
+    // storage full/unavailable — the simulation keeps running in memory
+  }
+}
+
+/**
+ * Write everything to localStorage immediately. Called when the page is being
+ * hidden or unloaded, so the last few seconds of progress aren't lost to the
+ * 30 s flush interval.
+ */
+export function flushSimulation(): void {
+  lastSimPersist = Date.now();
+  persist();
+  persistSimStates();
+}
 
 const isEnergyBrainSession = (id: string) => id.startsWith("EB-");
 
@@ -178,6 +228,10 @@ export function useSimStates(): ReadonlyMap<string, SimState> {
  * only its own backend may close those — and simply settle at 0 kW.
  */
 export function tickSimulation(nowMs: number = Date.now()): void {
+  // Resume where the last visit left off. advance() caps a single step at
+  // MAX_STEP_HOURS, so a refresh or a short tab switch is seamless while a
+  // gap of hours simply doesn't accrue — you never come back to a full pack.
+  loadSimStates();
   const db = getDb();
   const live = db.sessions.filter((s) => s.endTime === null);
   const seen = new Set<string>();
@@ -233,6 +287,7 @@ export function tickSimulation(nowMs: number = Date.now()): void {
   if (nowMs - lastSimPersist > SIM_PERSIST_MS) {
     lastSimPersist = nowMs;
     persist();
+    persistSimStates();
   }
   merged = null;
   listeners.forEach((l) => l());
@@ -277,6 +332,7 @@ function closeSessions(
   });
   for (const id of finishedIds) simStates.delete(id);
   simSnapshot = new Map(simStates);
+  persistSimStates();
 
   if (!db.sessions.some((s) => s.endTime === null)) startFixtureSession(db, nowMs);
 
@@ -406,6 +462,13 @@ export function resetDb(): void {
   simStates.clear();
   simSnapshot = new Map();
   lastSimPersist = 0;
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.removeItem(SIM_KEY);
+    } catch {
+      // nothing to clean up
+    }
+  }
   cache = seed();
   notify();
 }
