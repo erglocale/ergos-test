@@ -1,15 +1,15 @@
 "use client";
 
 import { ExclamationCircleFilled } from "@ant-design/icons";
-import { Button, InputNumber, message, Modal, Space, Table, Tag, Typography } from "antd";
+import { Button, InputNumber, Space, Table, Tag, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import { useRef } from "react";
 import { updateRow } from "@/data/store";
 import type { Chargepoint, Connector, ConnectorStatus } from "@/data/types";
 import { CONFIRM_BUTTON_PROPS } from "./derive";
+import { message, modal } from "@/lib/antdStatic";
 
 const { Text } = Typography;
-const { confirm } = Modal;
 
 function connectorTagColor(status: string) {
   return status === "Available"
@@ -66,7 +66,7 @@ export default function Connectors({ cp }: { cp: Chargepoint }) {
             style={{ marginLeft: "10px" }}
             onClick={() => {
               if (connector.status === "Charging") {
-                confirm({
+                modal.confirm({
                   title:
                     "Are you sure you want to send a RemoteStopTransaction message to this Charger?",
                   icon: <ExclamationCircleFilled />,
@@ -81,7 +81,7 @@ export default function Connectors({ cp }: { cp: Chargepoint }) {
                 });
               } else {
                 limitRef.current = 2;
-                confirm({
+                modal.confirm({
                   title:
                     "Are you sure you want to send a RemoteStartTransaction message to this Charger?",
                   icon: <ExclamationCircleFilled />,
@@ -125,7 +125,7 @@ export default function Connectors({ cp }: { cp: Chargepoint }) {
             color="primary"
             variant="solid"
             onClick={() => {
-              confirm({
+              modal.confirm({
                 title:
                   "Are you sure you want to send a UnlockConnector message to this Charger?",
                 icon: <ExclamationCircleFilled />,
@@ -145,7 +145,7 @@ export default function Connectors({ cp }: { cp: Chargepoint }) {
             color="primary"
             variant="solid"
             onClick={() => {
-              confirm({
+              modal.confirm({
                 title:
                   "Are you sure you want to send a ChangeAvailability message to this Charger?",
                 icon: <ExclamationCircleFilled />,

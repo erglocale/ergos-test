@@ -1,9 +1,10 @@
 "use client";
 
-import { Button, Form, InputNumber, Modal, message } from "antd";
+import { Button, Form, InputNumber, Modal } from "antd";
 import { useEffect } from "react";
 import { updateRow } from "@/data/store";
 import type { Vehicle } from "@/data/types";
+import { message } from "@/lib/antdStatic";
 
 // Port of the production EditVehicleModal ("Update vehicle configuration"):
 // it only edits the Smart Charge (max SoC) limit. Wired to the store's

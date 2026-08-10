@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Card, Col, Input, Row, Select, Typography, message } from "antd";
+import { Button, Card, Col, Input, Row, Select, Typography } from "antd";
 import { useMemo, useState } from "react";
 import type { IconType } from "react-icons";
 import { FaCar, FaParking, FaRoute } from "react-icons/fa";
@@ -8,6 +8,7 @@ import { FiBatteryCharging, FiSearch } from "react-icons/fi";
 import AddVehicleModal from "@/components/vehicles/AddVehicleModal";
 import VehicleList from "@/components/vehicles/VehiclesList";
 import { useDb } from "@/data/store";
+import { message } from "@/lib/antdStatic";
 
 const { Title } = Typography;
 

@@ -5,7 +5,6 @@ import {
   Avatar,
   Button,
   message,
-  Modal,
   Table,
   Tag,
   Tooltip,
@@ -19,9 +18,9 @@ import UserFormModal, {
 } from "@/components/users/UserFormModal";
 import { createRow, nextId, updateRow, useDb } from "@/data/store";
 import type { PortalUser } from "@/data/types";
+import { modal } from "@/lib/antdStatic";
 
 const { Title, Text } = Typography;
-const { confirm } = Modal;
 
 function getInitials(namee: string): string {
   if (namee && namee.trim()) {
@@ -65,7 +64,7 @@ export default function Users() {
       messageApi.success(`${user.name} re-enabled`);
       return;
     }
-    confirm({
+    modal.confirm({
       title: `Disable ${user.name}?`,
       icon: <ExclamationCircleFilled />,
       content:

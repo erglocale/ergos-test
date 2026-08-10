@@ -8,7 +8,7 @@
 
 import { MarkerClusterer } from "@googlemaps/markerclusterer";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDb } from "@/data/store";
 import { apiKey, importLibrary, POI_OFF_STYLES } from "@/lib/googleMaps";
 
@@ -40,6 +40,9 @@ export default function DashboardMap({
   }>({ vehicles: null, chargers: null });
   const infoRef = useRef<google.maps.InfoWindow | null>(null);
   const boundsRef = useRef<google.maps.LatLngBounds | null>(null);
+  // The viewport is the user's once they touch it: auto-fit runs on the first
+  // render only, and after that solely via the Reset Zoom button.
+  const didAutoFitRef = useRef(false);
   const [ready, setReady] = useState(false);
   const [showChargers, setShowChargers] = useState(true);
   const [showVehicles, setShowVehicles] = useState(true);
@@ -78,6 +81,42 @@ export default function DashboardMap({
     };
   }, []);
 
+  // ─── What the markers actually depend on ────────────────────────
+  // The live simulation rewrites session energy and vehicle SoC every few
+  // seconds, which produces fresh `db` arrays on every tick. Those values only
+  // ever appear inside an info window, so rebuilding the markers for them is
+  // pure waste — and the rebuild used to re-fit the bounds, which is what
+  // yanked the map back out whenever you zoomed in. Rebuild only when a
+  // position, status, name or occupancy count genuinely changes.
+  const markerSignature = useMemo(() => {
+    const vehicles = db.vehicles
+      .map((v) => `${v.id}:${v.lat}:${v.lng}:${v.status}`)
+      .join("|");
+    const chargers = db.chargepoints
+      .map(
+        (c) =>
+          `${c.id}:${c.lat}:${c.lng}:${c.name}:${c.hub}:${c.status}:` +
+          c.connectors.map((cn) => `${cn.id}/${cn.powerKw}/${cn.type}/${cn.status}`).join("+"),
+      )
+      .join("|");
+    const liveByCharger = db.sessions
+      .filter((s) => s.endTime === null)
+      .map((s) => s.chargerId)
+      .sort()
+      .join(",");
+    return `${vehicles}#${chargers}#${liveByCharger}`;
+  }, [db.vehicles, db.chargepoints, db.sessions]);
+
+  // Latest data and toggle state for the (deliberately stable) render callback
+  // to read, so the callback identity doesn't change on every store tick and
+  // flipping a layer toggle doesn't rebuild every marker.
+  const dbRef = useRef(db);
+  const togglesRef = useRef({ showChargers, showVehicles, showHubs });
+  useEffect(() => {
+    dbRef.current = db;
+    togglesRef.current = { showChargers, showVehicles, showHubs };
+  });
+
   // ─── Clear ──────────────────────────────────────────────────────
   const clearAll = useCallback(() => {
     if (clusterRef.current.chargers) {
@@ -100,6 +139,8 @@ export default function DashboardMap({
     const gm = window.google?.maps;
     const info = infoRef.current;
     if (!map || !gm || !info) return;
+    const db = dbRef.current;
+    const { showChargers, showVehicles, showHubs } = togglesRef.current;
 
     clearAll();
 
@@ -205,11 +246,14 @@ export default function DashboardMap({
       });
 
       marker.addListener("click", () => {
+        // SoC is read at click time: the markers are no longer rebuilt when it
+        // ticks, so the value baked in at build time would be stale.
+        const live = dbRef.current.vehicles.find((x) => x.id === vehicle.id) ?? vehicle;
         info.setContent(
           `<div style="font-family:sans-serif;padding:4px;min-width:100px">` +
-            `<strong style="color:${color}">${vehicle.reg || ""}</strong>` +
-            `<br/><span style="font-size:12px;color:#666">${vehicle.make} ${vehicle.model}</span>` +
-            `<br/><span style="font-size:12px">SoC: ${Number(vehicle.soc ?? 0).toFixed(1)}%</span>` +
+            `<strong style="color:${color}">${live.reg || ""}</strong>` +
+            `<br/><span style="font-size:12px;color:#666">${live.make} ${live.model}</span>` +
+            `<br/><span style="font-size:12px">SoC: ${Number(live.soc ?? 0).toFixed(1)}%</span>` +
             `</div>`,
         );
         info.open(map, marker);
@@ -354,20 +398,24 @@ export default function DashboardMap({
     });
 
     if (count > 0) {
+      // Keep the bounds current for Reset Zoom, but never move the camera
+      // again on a data refresh — only on the very first render.
       boundsRef.current = bounds;
-      map.fitBounds(bounds, 50);
-      gm.event.addListenerOnce(map, "idle", () => {
-        const zoom = map.getZoom();
-        if (zoom !== undefined && zoom > 15) map.setZoom(15);
-      });
+      if (!didAutoFitRef.current) {
+        didAutoFitRef.current = true;
+        map.fitBounds(bounds, 50);
+        gm.event.addListenerOnce(map, "idle", () => {
+          const zoom = map.getZoom();
+          if (zoom !== undefined && zoom > 15) map.setZoom(15);
+        });
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db.chargepoints, db.vehicles, db.sessions, router, clearAll]);
+  }, [router, clearAll]);
 
   useEffect(() => {
     if (!ready || !mapRef.current) return;
     renderMarkers();
-  }, [ready, renderMarkers]);
+  }, [ready, markerSignature, renderMarkers]);
 
   // ─── Toggle chargers ─────────────────────────────────────────────
   useEffect(() => {

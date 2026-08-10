@@ -1,10 +1,11 @@
 "use client";
 
-import { Col, Input, message, Modal, Row, Select, TimePicker } from "antd";
+import { Col, Input, Modal, Row, Select, TimePicker } from "antd";
 import { useEffect, useState } from "react";
 import { updateRow } from "@/data/store";
 import type { Chargepoint } from "@/data/types";
 import { deriveCharger } from "./derive";
+import { message } from "@/lib/antdStatic";
 
 const { TextArea } = Input;
 

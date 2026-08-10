@@ -1,10 +1,10 @@
 "use client";
 
 import { ExclamationCircleFilled } from "@ant-design/icons";
-import { Alert, Button, message, Modal, Typography } from "antd";
+import { Alert, Button, Modal, Typography } from "antd";
 import { CONFIRM_BUTTON_PROPS } from "./derive";
+import { message, modal } from "@/lib/antdStatic";
 
-const { confirm } = Modal;
 const { Text } = Typography;
 
 export default function ResetChargerModal({
@@ -17,7 +17,7 @@ export default function ResetChargerModal({
   cpid: string;
 }) {
   const resetConfirm = (type: "Hard" | "Soft") =>
-    confirm({
+    modal.confirm({
       title: `Are you sure you want to ${type} Reset this Charger?`,
       icon: <ExclamationCircleFilled />,
       content: `When clicked the Proceed button, a ${type} Reset Message will be sent to the Chargepoint which will result in resetting the Charger\`s Configurations! This action cannot be undone!`,

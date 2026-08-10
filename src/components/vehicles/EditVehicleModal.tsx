@@ -1,9 +1,10 @@
 "use client";
 
-import { Button, Form, Input, InputNumber, message, Modal, Select, Typography } from "antd";
+import { Button, Form, Input, InputNumber, Modal, Select, Typography } from "antd";
 import { useEffect } from "react";
 import { updateRow } from "@/data/store";
 import type { Vehicle } from "@/data/types";
+import { message } from "@/lib/antdStatic";
 
 const { Text } = Typography;
 

@@ -49,6 +49,8 @@ export interface Vehicle {
   model: string;
   category: "3W Cargo" | "3W Passenger" | "2W" | "4W";
   batteryKwh: number;
+  /** Charge acceptance in kW. Absent for fixtures, which use the connector. */
+  maxChargeKw?: number;
   soc: number;
   socCapPct: number;
   status: "Idle" | "Driving" | "Charging" | "Offline";

@@ -5,7 +5,6 @@ import {
   Card,
   Empty,
   InputNumber,
-  message,
   Radio,
   Table,
   Tag,
@@ -17,8 +16,9 @@ import ReactECharts from "echarts-for-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { useDb } from "@/data/store";
+import { useDb, useSimStates } from "@/data/store";
 import type { ChargingSession, Vehicle } from "@/data/types";
+import { message } from "@/lib/antdStatic";
 
 const { Title, Text } = Typography;
 const GREEN = "#16a34a";
@@ -59,6 +59,7 @@ export default function HubPage() {
   const params = useParams<{ name: string }>();
   const hubName = decodeURIComponent(params.name);
   const db = useDb();
+  const sim = useSimStates();
 
   const chargers = useMemo(
     () => db.chargepoints.filter((cp) => cp.hub === hubName),
@@ -106,18 +107,25 @@ export default function HubPage() {
       const cp = chargers.find((c) => c.id === s.chargerId);
       return cp?.connectors.find((cn) => cn.id === s.connectorId)?.powerKw ?? 3;
     };
-    for (let t = start; t.isBefore(dayjs()); t = t.add(15, "minute")) {
+    // The last bucket is "now", where the simulator knows the actual draw — an
+    // optimizer may be holding a vehicle at 0 kW rather than letting it pull
+    // the connector's full rating. Earlier buckets keep the rating estimate.
+    const nowMs = start.add(24, "hour").valueOf();
+    const liveFrom = nowMs - 15 * 60_000;
+    for (let t = start; t.valueOf() < nowMs; t = t.add(15, "minute")) {
       const ts = t.valueOf();
       let kw = 0;
       for (const s of hubSessions) {
         const sStart = dayjs(s.startTime).valueOf();
-        const sEnd = s.endTime ? dayjs(s.endTime).valueOf() : Date.now();
-        if (sStart <= ts && ts < sEnd) kw += powerOf(s);
+        const sEnd = s.endTime ? dayjs(s.endTime).valueOf() : nowMs;
+        if (sStart > ts || ts >= sEnd) continue;
+        kw += !s.endTime && ts >= liveFrom ? (sim.get(s.id)?.powerKw ?? 0) : powerOf(s);
       }
       points.push([ts, Math.round(kw * 100) / 100]);
     }
     return points;
-  }, [hubSessions, chargers]);
+  }, [hubSessions, chargers, sim]);
+
   const currentKw = powerSeries.length ? powerSeries[powerSeries.length - 1][1] : 0;
 
   // ---- daily energy (last 10 days) ---------------------------------------

@@ -3,7 +3,8 @@
 import { Pagination, Typography } from "antd";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useDb } from "@/data/store";
+import { etaMinutes } from "@/data/liveSim";
+import { useDb, useSimStates } from "@/data/store";
 
 const { Title } = Typography;
 
@@ -44,6 +45,7 @@ function VehicleStatusProgress({ percentage }: { percentage: number }) {
 
 export default function LiveVehicleChargingStatus() {
   const db = useDb();
+  const sim = useSimStates();
   const router = useRouter();
   const [limit] = useState(10);
   const [pageNum, setPageNum] = useState(1);
@@ -62,9 +64,10 @@ export default function LiveVehicleChargingStatus() {
     verticalAlign: "top",
   };
 
-  const readyText = (soc: number, powerKw: number, batteryKwh: number, capPct: number) => {
-    const remainingKwh = Math.max(0, ((capPct - soc) / 100) * batteryKwh);
-    const minutes = powerKw > 0 ? Math.round((remainingKwh / powerKw) * 60) : 0;
+  const readyText = (minutes: number | null) => {
+    // No power right now means the optimizer has parked this vehicle until a
+    // cheaper/sunnier slot, so an ETA would be meaningless.
+    if (minutes === null) return "Waiting for its charging slot";
     if (minutes < 5) return "Ready in few minutes";
     return `Ready in ${minutes} min`;
   };
@@ -109,8 +112,19 @@ export default function LiveVehicleChargingStatus() {
           {rows.map((session) => {
             const vehicle = db.vehicles.find((v) => v.reg === session.vehicleReg);
             const cp = db.chargepoints.find((c) => c.id === session.chargerId);
-            const soc = vehicle?.soc ?? session.socStart;
-            const powerKw = cp?.connectors[0]?.powerKw ?? 3;
+            const state = sim.get(session.id);
+            const soc = state?.soc ?? vehicle?.soc ?? session.socStart;
+            const powerKw = state?.powerKw ?? 0;
+            const eta = state
+              ? etaMinutes(state, {
+                  connectorKw:
+                    cp?.connectors.find((cn) => cn.id === session.connectorId)?.powerKw ?? 3,
+                  vehicleMaxKw: vehicle?.maxChargeKw,
+                  batteryKwh: vehicle?.batteryKwh ?? 8,
+                  targetSoc: vehicle?.socCapPct ?? 100,
+                  plannedKw: null,
+                })
+              : null;
             return (
               <tr key={session.id} style={{ backgroundColor: "#fff", borderRadius: "8px" }}>
                 <td
@@ -137,7 +151,10 @@ export default function LiveVehicleChargingStatus() {
                   </div>
                   <div style={{ fontSize: "14px", color: "#555" }}>
                     {`SoC: ${Number(soc).toFixed(1)}%, `}
-                    {readyText(soc, powerKw, vehicle?.batteryKwh ?? 8, vehicle?.socCapPct ?? 100)}
+                    {readyText(eta)}
+                    <span style={{ color: powerKw > 0 ? "#16a34a" : "#9ca3af", fontWeight: 600 }}>
+                      {` · ${powerKw.toFixed(2)} kW`}
+                    </span>
                   </div>
                 </td>
               </tr>

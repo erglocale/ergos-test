@@ -1,8 +1,9 @@
 "use client";
 
 import { DownloadOutlined } from "@ant-design/icons";
-import { Button, message, Modal, QRCode } from "antd";
+import { Button, Modal, QRCode } from "antd";
 import { qrUrlForCharger } from "./derive";
+import { message } from "@/lib/antdStatic";
 
 export default function QRCodeDetailModal({
   isModalVisible,

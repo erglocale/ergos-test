@@ -1,9 +1,10 @@
 "use client";
 
-import { Button, message, Modal, Table, Typography } from "antd";
+import { Button, Modal, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import { useState } from "react";
 import { FAKE_CHARGER_CONFIGS } from "./derive";
+import { message } from "@/lib/antdStatic";
 
 const { Text } = Typography;
 

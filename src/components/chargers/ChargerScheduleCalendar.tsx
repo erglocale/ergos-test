@@ -3,11 +3,8 @@
 import dayjs, { type Dayjs } from "dayjs";
 import Link from "next/link";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import {
-  fetchPredictedSchedules,
-  type PredictedSchedule,
-} from "@/data/energyBrain";
-import { useDb, useEnergyHubLimits } from "@/data/store";
+import { useSchedules } from "@/data/liveSim";
+import { useDb, useEnergyHubLimits, useSimStates } from "@/data/store";
 import type { Chargepoint, ChargingSession } from "@/data/types";
 
 // Calendar/Gantt view of each charger's sessions (demo spec item 1, Aug 2026).
@@ -212,27 +209,18 @@ export default function ChargerScheduleCalendar({
   chargers: Chargepoint[];
 }) {
   const db = useDb();
+  const sim = useSimStates();
   const hubGridLimits = useEnergyHubLimits();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState<Dayjs>(() => dayjs());
-  const [predicted, setPredicted] = useState<PredictedSchedule[]>([]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // The optimizer plan is fetched once for the whole app by LiveSimulation;
+  // running it again here would make the backend re-solve for the same answer.
+  const predicted = useSchedules();
 
   useEffect(() => {
-    let stopped = false;
-    const tick = async () => {
-      const schedules = await fetchPredictedSchedules();
-      if (!stopped) {
-        setPredicted(schedules);
-        setNow(dayjs());
-      }
-    };
-    tick();
-    const timer = setInterval(tick, 60_000);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
+    const timer = setInterval(() => setNow(dayjs()), 30_000);
+    return () => clearInterval(timer);
   }, []);
 
   const windowStart = now.subtract(HOURS_BACK, "hour").startOf("hour");
@@ -298,8 +286,14 @@ export default function ChargerScheduleCalendar({
           endMs: Math.min(pastEndMs, windowEnd.valueOf()),
           label: s.vehicleReg,
           kind: ongoing ? "ongoing" : "past",
-          // Dummy history curve, scaled to the connector's actual rating.
-          power: pastCurve(s.id).map((f) => f * connectorKw(cp, s.connectorId)),
+          // Dummy history curve, scaled to the connector's actual rating. For a
+          // live session the newest sample is the simulator's real draw, so the
+          // curve ends where the site row and hub page say it does.
+          power: (() => {
+            const curve = pastCurve(s.id).map((f) => f * connectorKw(cp, s.connectorId));
+            if (ongoing) curve[curve.length - 1] = sim.get(s.id)?.powerKw ?? 0;
+            return curve;
+          })(),
           ratedKw: connectorKw(cp, s.connectorId),
           socStart: s.socStart,
           socEnd: s.socEnd ?? vehicle?.soc ?? s.socStart,
@@ -347,7 +341,11 @@ export default function ChargerScheduleCalendar({
         if (!cp) continue;
         const sStart = dayjs(s.startTime).valueOf();
         const sEnd = s.endTime ? dayjs(s.endTime).valueOf() : now.valueOf();
-        if (sStart <= ms && ms < sEnd) kw += connectorKw(cp, s.connectorId);
+        if (sStart <= ms && ms < sEnd) {
+          // In the sample containing "now" the simulator has the actual draw.
+          const live = !s.endTime && ms >= now.valueOf() - stepMs;
+          kw += live ? (sim.get(s.id)?.powerKw ?? 0) : connectorKw(cp, s.connectorId);
+        }
         const pts = predictedBySession.get(s.id);
         if (pts && ms >= now.valueOf()) {
           const hit = pts.find((p) => {

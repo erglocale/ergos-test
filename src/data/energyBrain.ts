@@ -207,6 +207,7 @@ export async function fetchEnergyOverlay(): Promise<EnergyOverlay | null> {
         model: rest.join(" ") || "—",
         category: "3W Cargo",
         batteryKwh: v.battery_capacity,
+        maxChargeKw: v.max_charging_power,
         soc: Math.round(v.soc ?? 0),
         socCapPct: Math.round(v.target_soc),
         status: ongoing ? "Charging" : "Idle",

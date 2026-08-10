@@ -1,7 +1,7 @@
 "use client";
 
 import { ExclamationCircleFilled } from "@ant-design/icons";
-import { Button, Dropdown, message, Modal, Tag, Typography } from "antd";
+import { Button, Dropdown, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import localizedFormat from "dayjs/plugin/localizedFormat";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -9,12 +9,12 @@ import { useRouter } from "next/navigation";
 import { LuCircleCheckBig, LuCircleOff, LuEllipsis } from "react-icons/lu";
 import { updateRow } from "@/data/store";
 import type { ChargerWarning as ChargerWarningRow } from "@/data/types";
+import { message, modal } from "@/lib/antdStatic";
 
 dayjs.extend(relativeTime);
 dayjs.extend(localizedFormat);
 
 const { Text } = Typography;
-const { confirm } = Modal;
 
 // View model matching the records the production warnings API returns
 // (warningId + charger with address), built from db.chargerWarnings rows.
@@ -132,7 +132,7 @@ export default function ChargerWarning({
   const router = useRouter();
 
   const showIgnoreConfirm = () => {
-    confirm({
+    modal.confirm({
       title: "Are you sure you want to ignore this warning?",
       icon: <ExclamationCircleFilled />,
       content:
@@ -148,7 +148,7 @@ export default function ChargerWarning({
   };
 
   const showResolveConfirm = () => {
-    confirm({
+    modal.confirm({
       title: "Are you sure you want to mark this warning as resolved?",
       icon: <ExclamationCircleFilled />,
       content:

@@ -1,11 +1,11 @@
 "use client";
 
 import { ExclamationCircleFilled, ReloadOutlined } from "@ant-design/icons";
-import { Button, Col, message, Modal, Row, Typography } from "antd";
+import { Button, Col, message, Row, Typography } from "antd";
 import { resetDb, useDb } from "@/data/store";
+import { modal } from "@/lib/antdStatic";
 
 const { Title, Text } = Typography;
-const { confirm } = Modal;
 
 // Sandbox port of pages/AccountManagement/CommissionDetails.jsx ("Organization
 // Settings"). The org id is a fixed sandbox value; the company name comes from
@@ -94,7 +94,7 @@ export default function OrganizationSettings() {
             danger
             icon={<ReloadOutlined />}
             onClick={() => {
-              confirm({
+              modal.confirm({
                 title: "Reset demo data?",
                 icon: <ExclamationCircleFilled />,
                 content:

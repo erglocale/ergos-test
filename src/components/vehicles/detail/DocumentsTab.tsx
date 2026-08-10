@@ -1,14 +1,13 @@
 "use client";
 
 import { ExclamationCircleFilled } from "@ant-design/icons";
-import { Button, Modal, Tag, message } from "antd";
+import { Button, Tag } from "antd";
 import dayjs from "dayjs";
 import { useMemo, useState } from "react";
 import { FiDownload, FiEye, FiFileText, FiPlus, FiTrash2 } from "react-icons/fi";
 import type { Vehicle } from "@/data/types";
 import { deriveVehicleDocs, fmtDate, type VehicleDoc } from "./vehicleDetailUtils";
-
-const { confirm } = Modal;
+import { message, modal } from "@/lib/antdStatic";
 
 export const docOptions = [
   // PUCC intentionally omitted — fleet is EV.
@@ -137,7 +136,7 @@ export default function DocumentsTab({ vehicle }: { vehicle: Vehicle }) {
                     style={{ width: "60px" }}
                     icon={<FiTrash2 className="h-4 w-8" />}
                     onClick={() => {
-                      confirm({
+                      modal.confirm({
                         title: "Delete Document ?",
                         icon: <ExclamationCircleFilled />,
                         okText: "Delete",

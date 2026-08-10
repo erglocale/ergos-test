@@ -1,9 +1,10 @@
 "use client";
 
-import { Button, Col, DatePicker, Form, Input, message, Modal, Row, Typography } from "antd";
+import { Button, Col, DatePicker, Form, Input, Modal, Row, Typography } from "antd";
 import dayjs from "dayjs";
 import { createRow, nextId } from "@/data/store";
 import { DATE_FORMAT } from "@/lib/dateFormat";
+import { message } from "@/lib/antdStatic";
 
 const { Text } = Typography;
 

@@ -7,7 +7,6 @@ import {
   Form,
   Input,
   InputNumber,
-  message,
   Modal,
   Row,
   Slider,
@@ -19,6 +18,7 @@ import { useMemo, useState } from "react";
 import { FaCar } from "react-icons/fa";
 import { createRow, nextId, useDb } from "@/data/store";
 import type { Vehicle } from "@/data/types";
+import { message } from "@/lib/antdStatic";
 
 const { Text, Title } = Typography;
 const { Search } = Input;

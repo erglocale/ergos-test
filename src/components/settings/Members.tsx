@@ -19,9 +19,9 @@ import dayjs from "dayjs";
 import { useState } from "react";
 import { createRow, nextId, removeRow, useDb } from "@/data/store";
 import type { PortalUser } from "@/data/types";
+import { modal } from "@/lib/antdStatic";
 
 const { Title, Text } = Typography;
-const { confirm } = Modal;
 
 function getInitials(namee: string): string {
   if (namee && namee.trim()) {
@@ -150,7 +150,7 @@ export default function Members() {
                 style={{ marginLeft: "10px" }}
                 danger
                 onClick={() => {
-                  confirm({
+                  modal.confirm({
                     title: `Are you sure you want to remove this member: ${member.name || member.email}?`,
                     icon: <ExclamationCircleFilled />,
                     content:

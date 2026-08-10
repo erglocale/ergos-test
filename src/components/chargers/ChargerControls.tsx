@@ -5,7 +5,7 @@ import {
   ExclamationCircleFilled,
   SettingOutlined,
 } from "@ant-design/icons";
-import { Button, Col, message, Modal, Row } from "antd";
+import { Button, Col, Row } from "antd";
 import { useState } from "react";
 import { GrPowerReset } from "react-icons/gr";
 import { MdOutlineSendAndArchive } from "react-icons/md";
@@ -17,8 +17,7 @@ import { CONFIRM_BUTTON_PROPS } from "./derive";
 import ResetChargerModal from "./ResetChargerModal";
 import TriggerMessageModal from "./TriggerMessageModal";
 import UpdateChargerConfigurationModal from "./UpdateChargerConfigurationModal";
-
-const { confirm } = Modal;
+import { message, modal } from "@/lib/antdStatic";
 
 export default function ChargerControls({ cp }: { cp: Chargepoint }) {
   const cpid = cp.id;
@@ -71,7 +70,7 @@ export default function ChargerControls({ cp }: { cp: Chargepoint }) {
             color="primary"
             variant="solid"
             onClick={() => {
-              confirm({
+              modal.confirm({
                 title:
                   "Are you sure you want to send a ClearCache message to this Charger?",
                 icon: <ExclamationCircleFilled />,
@@ -105,7 +104,7 @@ export default function ChargerControls({ cp }: { cp: Chargepoint }) {
             color="primary"
             variant="solid"
             onClick={() => {
-              confirm({
+              modal.confirm({
                 title:
                   "Are you sure you want to send a ChangeAvailability message to this Charger?",
                 icon: <ExclamationCircleFilled />,
@@ -128,7 +127,7 @@ export default function ChargerControls({ cp }: { cp: Chargepoint }) {
             color="primary"
             variant="solid"
             onClick={() => {
-              confirm({
+              modal.confirm({
                 title:
                   "Are you sure you want to send a ChangeAvailability message to this Charger?",
                 icon: <ExclamationCircleFilled />,

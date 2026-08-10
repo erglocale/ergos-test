@@ -1,16 +1,16 @@
 "use client";
 
 import { ExclamationCircleFilled } from "@ant-design/icons";
-import { Button, Modal, Tag, Typography, message } from "antd";
+import { Button, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import { useMemo, useState } from "react";
 import { FiDownload, FiEye, FiFileText, FiPlus, FiTrash2 } from "react-icons/fi";
 import { fmtDate, hashId } from "@/components/vehicles/detail/vehicleDetailUtils";
 import type { Driver } from "@/data/types";
 import getDocumentSummaryByEntity from "./documents";
+import { message, modal } from "@/lib/antdStatic";
 
 const { Text } = Typography;
-const { confirm } = Modal;
 
 export const docOptions = [
   { label: "All", value: "ALL" },
@@ -206,7 +206,7 @@ export default function DriverDocumentsTab({ driver }: { driver: Driver }) {
                     style={{ width: "60px" }}
                     icon={<FiTrash2 className="h-4 w-8" />}
                     onClick={() => {
-                      confirm({
+                      modal.confirm({
                         title: "Delete Document ?",
                         icon: <ExclamationCircleFilled />,
                         okText: "Delete",

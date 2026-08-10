@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Card, Popconfirm, Space, Table, Tag, Tooltip, message } from "antd";
+import { Button, Card, Popconfirm, Space, Table, Tag, Tooltip } from "antd";
 import type { TableColumnsType } from "antd";
 import { useState } from "react";
 import { FaHistory } from "react-icons/fa";
@@ -9,6 +9,7 @@ import getDocumentSummaryByEntity from "@/components/drivers/documents";
 import { removeRow, useDb } from "@/data/store";
 import type { Vehicle } from "@/data/types";
 import EditVehicleModal from "./EditVehicleModal";
+import { message } from "@/lib/antdStatic";
 
 // Color-coded SoC battery bar — 10 segments from red to green
 const SOC_COLORS = [

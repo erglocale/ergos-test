@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, message, Popconfirm, QRCode, Select, Table, Tabs, Tag, Typography } from "antd";
+import { Button, Popconfirm, QRCode, Select, Table, Tabs, Tag, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import dayjs from "dayjs";
 import Link from "next/link";
@@ -9,6 +9,7 @@ import ChargerScheduleCalendar from "@/components/chargers/ChargerScheduleCalend
 import { deriveCharger, qrUrlForCharger } from "@/components/chargers/derive";
 import { useDb } from "@/data/store";
 import type { Chargepoint } from "@/data/types";
+import { message } from "@/lib/antdStatic";
 
 const { Title } = Typography;
 

@@ -9,7 +9,7 @@ import {
   SettingOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { Layout, Menu, Typography, message } from "antd";
+import { Layout, Menu, Typography } from "antd";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -20,7 +20,9 @@ import { ImPower } from "react-icons/im";
 import { MdEvStation } from "react-icons/md";
 import { TbReportAnalytics } from "react-icons/tb";
 import EnergyBrainSync from "@/components/energy/EnergyBrainSync";
+import LiveSimulation from "@/components/energy/LiveSimulation";
 import { useDb } from "@/data/store";
+import { message } from "@/lib/antdStatic";
 
 const { Sider, Content } = Layout;
 const { Text } = Typography;
@@ -72,6 +74,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <Layout className="h-screen">
       <EnergyBrainSync />
+      <LiveSimulation />
       <Sider
         style={{
           overflow: "none",

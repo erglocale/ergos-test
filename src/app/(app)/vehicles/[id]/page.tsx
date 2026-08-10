@@ -1,7 +1,7 @@
 "use client";
 
 import { InfoCircleOutlined, QrcodeOutlined } from "@ant-design/icons";
-import { Button, Col, Empty, Popconfirm, QRCode, Row, Segmented, Statistic, Tabs, Tooltip, message } from "antd";
+import { Button, Col, Empty, Popconfirm, QRCode, Row, Segmented, Statistic, Tabs, Tooltip } from "antd";
 import dayjs from "dayjs";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -17,6 +17,7 @@ import VehicleHeader from "@/components/vehicles/detail/VehicleHeader";
 import VehicleSessionsTable from "@/components/vehicles/detail/VehicleSessionsTable";
 import { fmtDate } from "@/components/vehicles/detail/vehicleDetailUtils";
 import { useDb } from "@/data/store";
+import { message } from "@/lib/antdStatic";
 
 function KpiTile({
   title,

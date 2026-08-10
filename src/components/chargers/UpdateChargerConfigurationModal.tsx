@@ -1,8 +1,9 @@
 "use client";
 
-import { Button, Input, message, Modal, Select, Typography } from "antd";
+import { Button, Input, Modal, Select, Typography } from "antd";
 import { useState } from "react";
 import { FAKE_CHARGER_CONFIGS } from "./derive";
+import { message } from "@/lib/antdStatic";
 
 const { Text } = Typography;
 

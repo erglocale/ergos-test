@@ -101,12 +101,20 @@ export function makeFixtures(now = dayjs()): Db {
   // ---- vehicles + drivers -------------------------------------------------
   const vehicles: Vehicle[] = [];
   const drivers: Driver[] = [];
+  // Home hub per vehicle, as an index into HUBS. Deliberately not `i % 2`:
+  // the second vehicle (…0307) is the one plugged into the Beltola charger by
+  // the live session below, so it has to live at Beltola. …0300 takes its
+  // place at Six Mile, keeping three vehicles at each hub.
+  const VEHICLE_HUB_IDX = [1, 0, 0, 1, 0, 1];
   for (let i = 0; i < 6; i += 1) {
     const spec = MAKES[i % MAKES.length];
-    const hub = HUBS[i % HUBS.length];
+    const hub = HUBS[VEHICLE_HUB_IDX[i % VEHICLE_HUB_IDX.length]];
     const reg = `AS01SC${String(300 + i * 7).padStart(4, "0")}`;
     const driver = i < DRIVER_NAMES.length ? DRIVER_NAMES[i] : null;
-    const status = pick(["Idle", "Idle", "Driving", "Driving", "Charging", "Idle"] as const);
+    // Never seed "Charging" here — that status is derived from whether the
+    // vehicle actually has a live session, so a stored flag would drift out of
+    // sync with the session list (see normalizeChargingStatus in store.ts).
+    const status = pick(["Idle", "Idle", "Driving", "Driving", "Idle", "Idle"] as const);
     vehicles.push({
       id: `veh-${i + 1}`,
       reg,
@@ -214,8 +222,10 @@ export function makeFixtures(now = dayjs()): Db {
       );
       const durMin = Math.round((energy / connector.powerKw) * 60) + int(8, 35);
       const end = start.add(durMin, "minute");
-      const ongoing = d === 0 && end.isAfter(now);
-      const faulted = !ongoing && rand() < 0.04;
+      // History is history: only the one guaranteed session below is live, so
+      // every page agrees on how many vehicles are charging right now.
+      if (end.isAfter(now)) continue;
+      const faulted = rand() < 0.04;
       sessions.push({
         id: `CS-${String(sesId).padStart(5, "0")}`,
         chargerId: cp.id,
@@ -224,13 +234,13 @@ export function makeFixtures(now = dayjs()): Db {
         vehicleReg: v.reg,
         driverName: drivers.find((dr) => dr.vehicleReg === v.reg)?.name ?? "—",
         startTime: start.toISOString(),
-        endTime: ongoing ? null : end.toISOString(),
-        energyKwh: ongoing ? round2(energy * 0.4) : faulted ? round2(energy * 0.2) : energy,
+        endTime: end.toISOString(),
+        energyKwh: faulted ? round2(energy * 0.2) : energy,
         socStart,
-        socEnd: ongoing ? null : faulted ? socStart + int(1, 4) : socEnd,
+        socEnd: faulted ? socStart + int(1, 4) : socEnd,
         cost: 0,
-        status: ongoing ? "Ongoing" : faulted ? "Faulted" : "Completed",
-        stopReason: ongoing ? null : faulted ? "PowerLoss" : pick(["EVDisconnected", "EVDisconnected", "EVDisconnected", "Remote"]),
+        status: faulted ? "Faulted" : "Completed",
+        stopReason: faulted ? "PowerLoss" : pick(["EVDisconnected", "EVDisconnected", "EVDisconnected", "Remote"]),
       });
     }
   }
@@ -272,10 +282,14 @@ export function makeFixtures(now = dayjs()): Db {
     sesId += 1;
     const cp = usableCps[0];
     const connector = availableConnector(cp);
-    const v = vehicles[1];
-    const elapsedMin = int(25, 50);
+    // The vehicle has to belong to the hub it is plugged into, or the hub page
+    // lists a vehicle that is charging somewhere else.
+    const v = vehicles.find((veh) => veh.hub === cp.hub) ?? vehicles[0];
+    // Only just plugged in: a reset should leave plenty of room to watch the
+    // simulation climb rather than dropping you in near the target SoC.
+    const elapsedMin = int(4, 12);
     const start = now.subtract(elapsedMin, "minute");
-    const socStart = int(25, 50);
+    const socStart = int(22, 34);
     // SoC gained so far must match the elapsed time at the connector's power.
     const gainedPct = Math.round(
       (((connector.powerKw * elapsedMin) / 60) / v.batteryKwh) * 100,

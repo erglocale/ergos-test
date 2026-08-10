@@ -1,7 +1,8 @@
 "use client";
 
-import { Alert, Button, Input, message, Modal, Select, Typography } from "antd";
+import { Alert, Button, Input, Modal, Select, Typography } from "antd";
 import { useState } from "react";
+import { message } from "@/lib/antdStatic";
 
 const { Text } = Typography;
 

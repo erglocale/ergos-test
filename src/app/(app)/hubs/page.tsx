@@ -42,14 +42,17 @@ export default function HubsIndex() {
         } satisfies HubSummary);
       h.chargers += 1;
       h.connectors += cp.connectors.length;
-      h.inUse += Math.min(cp.connectors.length, ongoingByCharger.get(cp.id) ?? 0);
+      const busy = Math.min(cp.connectors.length, ongoingByCharger.get(cp.id) ?? 0);
+      h.inUse += busy;
+      // Count vehicles charging AT this hub's chargers, the same rule the hub
+      // detail page uses, so the two never disagree.
+      h.chargingVehicles += busy;
       map.set(cp.hub, h);
     }
     for (const v of db.vehicles) {
       const h = map.get(v.hub);
       if (!h) continue;
       h.vehicles += 1;
-      if (v.status === "Charging") h.chargingVehicles += 1;
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [db.chargepoints, db.vehicles, db.sessions]);
