@@ -40,6 +40,9 @@ interface EbNetwork {
   name: string;
   latitude: number;
   longitude: number;
+  /** Grid connection capacity in kW — the site's real ceiling. */
+  max_capacity: number;
+  solar_capacity: number;
 }
 
 interface EbSession {
@@ -58,6 +61,12 @@ export interface EnergyOverlay {
   vehicles: Vehicle[];
   chargepoints: Chargepoint[];
   sessions: ChargingSession[];
+  /**
+   * Hub name -> the network's grid connection limit in kW. This is the site
+   * ceiling the optimizer plans against; it is NOT the sum of the charge
+   * points, which can be (and usually is) oversubscribed.
+   */
+  hubGridLimitKw: Record<string, number>;
 }
 
 export interface PredictedPoint {
@@ -211,7 +220,12 @@ export async function fetchEnergyOverlay(): Promise<EnergyOverlay | null> {
       };
     });
 
-    return { vehicles, chargepoints, sessions };
+    const hubGridLimitKw: Record<string, number> = {};
+    for (const net of ebNetworks) {
+      if (typeof net.max_capacity === "number") hubGridLimitKw[net.name] = net.max_capacity;
+    }
+
+    return { vehicles, chargepoints, sessions, hubGridLimitKw };
   } catch {
     return null;
   }

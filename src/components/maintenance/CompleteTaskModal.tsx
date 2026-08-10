@@ -4,6 +4,7 @@ import { Form, Input, InputNumber, Modal, DatePicker } from "antd";
 import dayjs, { Dayjs } from "dayjs";
 import { useEffect } from "react";
 import type { EnrichedMaintenanceTask } from "./derive";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 export interface CompleteTaskPayload {
   serviceDate: string; // YYYY-MM-DD
@@ -86,7 +87,7 @@ export default function CompleteTaskModal({
             style={{ flex: 1 }}
             rules={[{ required: true, message: "Select the service date" }]}
           >
-            <DatePicker style={{ width: "100%" }} format="DD/MM/YYYY" />
+            <DatePicker style={{ width: "100%" }} format={DATE_FORMAT} />
           </Form.Item>
           <Form.Item
             name="odometerKm"

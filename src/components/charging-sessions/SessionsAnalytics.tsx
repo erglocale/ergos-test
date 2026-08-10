@@ -5,6 +5,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import { useMemo, useState } from "react";
 import { useDb } from "@/data/store";
 import { hubForSession, sessionDurationHours } from "./sessionUtils";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { RangePicker } = DatePicker;
 const { Title } = Typography;
@@ -29,8 +30,12 @@ const CARD_STYLE: React.CSSProperties = {
   padding: 24,
 };
 
-const X_AXIS_HEIGHT = 26;
+const X_AXIS_HEIGHT = 30;
 const MAX_BARS = 60;
+// Left gutter: rotated axis title, then the tick numbers.
+const Y_TITLE_W = 20;
+const Y_AXIS_W = 42;
+const PLOT_LEFT = Y_TITLE_W + Y_AXIS_W;
 
 interface Unit {
   startKey: string;
@@ -103,6 +108,7 @@ function DateControls({
         options={PRESETS.map((p) => ({ label: p.label, value: p.value }))}
       />
       <RangePicker
+        format={DATE_FORMAT}
         allowClear={false}
         size="middle"
         style={{ width: 280 }}
@@ -143,7 +149,7 @@ function SummaryCard({
     >
       <div
         style={{
-          fontSize: 10,
+          fontSize: 12,
           textTransform: "uppercase",
           letterSpacing: 0.5,
           color: BRAND.textMuted,
@@ -153,15 +159,15 @@ function SummaryCard({
       >
         {label}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: BRAND.textPrimary, lineHeight: 1.1 }}>
+      <div style={{ fontSize: 24, fontWeight: 700, color: BRAND.textPrimary, lineHeight: 1.1 }}>
         {value}
         {unit && (
-          <span style={{ fontSize: 12, fontWeight: 500, color: BRAND.textSecondary, marginLeft: 3 }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: BRAND.textSecondary, marginLeft: 3 }}>
             {unit}
           </span>
         )}
       </div>
-      {sub && <div style={{ fontSize: 10, color: BRAND.textMuted, marginTop: 3, lineHeight: 1.4 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 12, color: BRAND.textMuted, marginTop: 4, lineHeight: 1.4 }}>{sub}</div>}
     </div>
   );
 }
@@ -173,13 +179,13 @@ function buildUnitTooltip(u: Unit) {
   const header =
     u.spanDays > 1 ? `${start.format("D MMM")} – ${end.format("D MMM YYYY")}` : start.format("D MMM YYYY");
   return (
-    <div style={{ minWidth: 180 }}>
-      <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 12 }}>{header}</div>
-      <div style={{ fontSize: 12, padding: "2px 0" }}>
+    <div style={{ minWidth: 190 }}>
+      <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>{header}</div>
+      <div style={{ fontSize: 13, padding: "2px 0" }}>
         {u.count} session{u.count === 1 ? "" : "s"}
       </div>
-      <div style={{ fontSize: 12, padding: "2px 0" }}>{u.kwh.toFixed(2)} kWh</div>
-      <div style={{ fontSize: 12, padding: "2px 0" }}>{u.hours.toFixed(2)} hrs</div>
+      <div style={{ fontSize: 13, padding: "2px 0" }}>{u.kwh.toFixed(2)} kWh</div>
+      <div style={{ fontSize: 13, padding: "2px 0" }}>{u.hours.toFixed(2)} hrs</div>
     </div>
   );
 }
@@ -190,12 +196,15 @@ function MetricBarChart({
   getValue,
   color,
   yMax,
+  yTitle,
   height = 280,
 }: {
   units: Unit[];
   getValue: (u: Unit) => number;
   color: string;
   yMax: number;
+  /** Axis title with its unit, e.g. "Energy (kWh)". */
+  yTitle: string;
   height?: number;
 }) {
   const innerHeight = height - X_AXIS_HEIGHT;
@@ -209,21 +218,48 @@ function MetricBarChart({
 
   return (
     <div style={{ position: "relative", height, marginTop: 16 }}>
-      {/* Y axis */}
+      {/* Y axis title */}
       <div
         style={{
           position: "absolute",
           left: 0,
           top: 0,
           bottom: X_AXIS_HEIGHT,
-          width: 32,
+          width: Y_TITLE_W,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <span
+          style={{
+            transform: "rotate(180deg)",
+            writingMode: "vertical-rl",
+            fontSize: 12,
+            fontWeight: 600,
+            color: BRAND.textSecondary,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {yTitle}
+        </span>
+      </div>
+
+      {/* Y axis ticks */}
+      <div
+        style={{
+          position: "absolute",
+          left: Y_TITLE_W,
+          top: 0,
+          bottom: X_AXIS_HEIGHT,
+          width: Y_AXIS_W - 8,
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
         }}
       >
         {yLabels.map((y, i) => (
-          <span key={i} style={{ fontSize: 10, color: BRAND.textMuted, textAlign: "right" }}>
+          <span key={i} style={{ fontSize: 12, color: BRAND.textSecondary, textAlign: "right" }}>
             {y}
           </span>
         ))}
@@ -233,7 +269,7 @@ function MetricBarChart({
       <div
         style={{
           position: "absolute",
-          left: 36,
+          left: PLOT_LEFT - 4,
           top: 0,
           right: 0,
           bottom: X_AXIS_HEIGHT,
@@ -252,7 +288,7 @@ function MetricBarChart({
       <div
         style={{
           position: "absolute",
-          left: 40,
+          left: PLOT_LEFT,
           top: 0,
           right: 8,
           bottom: X_AXIS_HEIGHT,
@@ -308,7 +344,7 @@ function MetricBarChart({
       <div
         style={{
           position: "absolute",
-          left: 40,
+          left: PLOT_LEFT,
           right: 8,
           bottom: 0,
           height: X_AXIS_HEIGHT,
@@ -324,7 +360,7 @@ function MetricBarChart({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 10,
+              fontSize: 12,
               color: BRAND.textSecondary,
               whiteSpace: "nowrap",
               overflow: "visible",
@@ -365,7 +401,7 @@ function LocationBreakdown({ hubAnalytics }: { hubAnalytics: HubRow[] }) {
 
   if (rows.length === 0) {
     return (
-      <div style={{ fontSize: 12, color: BRAND.textMuted, padding: "12px 0" }}>
+      <div style={{ fontSize: 14, color: BRAND.textMuted, padding: "12px 0" }}>
         No charging data for the selected period.
       </div>
     );
@@ -374,11 +410,11 @@ function LocationBreakdown({ hubAnalytics }: { hubAnalytics: HubRow[] }) {
   return (
     <div>
       {rows.map((r, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", padding: "8px 0", fontSize: 12 }}>
+        <div key={i} style={{ display: "flex", alignItems: "center", padding: "9px 0", fontSize: 14 }}>
           <div
             style={{
-              width: 8,
-              height: 8,
+              width: 9,
+              height: 9,
               borderRadius: "50%",
               background: r.color,
               flexShrink: 0,
@@ -389,21 +425,21 @@ function LocationBreakdown({ hubAnalytics }: { hubAnalytics: HubRow[] }) {
           <div
             style={{
               flex: 1,
-              height: 4,
+              height: 5,
               background: "#f0f0ed",
-              borderRadius: 2,
+              borderRadius: 3,
               margin: "0 12px",
               overflow: "hidden",
             }}
           >
-            <div style={{ height: "100%", width: `${r.pct}%`, background: r.color, borderRadius: 2 }} />
+            <div style={{ height: "100%", width: `${r.pct}%`, background: r.color, borderRadius: 3 }} />
           </div>
           <div
             style={{
               fontWeight: 600,
               color: BRAND.textPrimary,
               textAlign: "right",
-              fontSize: 12,
+              fontSize: 14,
               whiteSpace: "nowrap",
             }}
           >
@@ -495,9 +531,24 @@ export default function SessionsAnalytics() {
   }, [sessionsInRange, db.chargepoints]);
 
   const metricConfig = {
-    kwh: { label: "Energy", getValue: (u: Unit) => u.kwh, color: BRAND.orange },
-    sessions: { label: "Sessions", getValue: (u: Unit) => u.count, color: BRAND.orange },
-    duration: { label: "Duration", getValue: (u: Unit) => u.hours, color: BRAND.orange },
+    kwh: {
+      label: "Energy",
+      yTitle: "Energy (kWh)",
+      getValue: (u: Unit) => u.kwh,
+      color: BRAND.orange,
+    },
+    sessions: {
+      label: "Sessions",
+      yTitle: "Sessions",
+      getValue: (u: Unit) => u.count,
+      color: BRAND.orange,
+    },
+    duration: {
+      label: "Duration",
+      yTitle: "Duration (hrs)",
+      getValue: (u: Unit) => u.hours,
+      color: BRAND.orange,
+    },
   };
 
   const yMax = niceMax(
@@ -562,7 +613,7 @@ export default function SessionsAnalytics() {
           />
         </div>
         {!hasData ? (
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 280 }}>
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 300 }}>
             <Empty description="No charging activity in this window" />
           </div>
         ) : (
@@ -571,7 +622,8 @@ export default function SessionsAnalytics() {
             getValue={metricConfig[metric].getValue}
             color={metricConfig[metric].color}
             yMax={yMax}
-            height={280}
+            yTitle={metricConfig[metric].yTitle}
+            height={300}
           />
         )}
       </div>
@@ -591,7 +643,7 @@ export default function SessionsAnalytics() {
           <Title level={5} style={{ margin: 0, color: BRAND.textPrimary }}>
             Where charging happened
           </Title>
-          <span style={{ fontSize: 12, color: BRAND.textSecondary }}>
+          <span style={{ fontSize: 14, color: BRAND.textSecondary }}>
             Total:{" "}
             <span style={{ color: BRAND.textPrimary, fontWeight: 600 }}>{totals.kwh.toFixed(2)} kWh</span>
             {" · "}

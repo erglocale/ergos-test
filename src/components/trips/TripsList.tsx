@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useDb } from "@/data/store";
 import type { Trip } from "@/data/types";
 import { fmtDateTime, tripAddresses } from "./tripUtils";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -252,7 +253,7 @@ export default function TripsList() {
           >
             Export as Excel
           </Button>
-          <RangePicker value={internalRange} onChange={handleDateChange} />
+          <RangePicker value={internalRange} onChange={handleDateChange} format={DATE_FORMAT} />
         </div>
       </div>
       <Card

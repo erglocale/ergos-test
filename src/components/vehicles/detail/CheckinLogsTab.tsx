@@ -15,6 +15,7 @@ import {
   getDurationString,
   type CheckinLog,
 } from "./vehicleDetailUtils";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -123,7 +124,7 @@ export default function CheckinLogsTab({ vehicle }: { vehicle: Vehicle }) {
   return (
     <>
       <div className="mb-4 flex w-full items-center justify-between">
-        <RangePicker value={range} onChange={handleDateChange} format="DD MMM YYYY" />
+        <RangePicker value={range} onChange={handleDateChange} format={DATE_FORMAT} />
 
         <Button
           type="primary"

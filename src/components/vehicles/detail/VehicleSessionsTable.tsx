@@ -15,6 +15,7 @@ import {
 } from "@/components/charging-sessions/sessionUtils";
 import { useDb } from "@/data/store";
 import type { ChargingSession, Vehicle } from "@/data/types";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -167,6 +168,7 @@ export default function VehicleSessionsTable({ vehicle }: { vehicle: Vehicle }) 
     <>
       <div className="mb-4 flex w-full items-center justify-between">
         <RangePicker
+          format={DATE_FORMAT}
           value={range}
           onChange={(v) => {
             if (!v?.[0] || !v?.[1]) return;

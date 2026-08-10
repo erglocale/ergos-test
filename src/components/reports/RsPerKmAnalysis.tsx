@@ -8,6 +8,7 @@ import { useDb } from "@/data/store";
 import type { Trip } from "@/data/types";
 import VehicleSelectionModal from "./VehicleSelectionModal";
 import { DateRange, downloadCsv } from "./shared";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { RangePicker } = DatePicker;
 const MAX_WIDTH = 1200;
@@ -635,6 +636,7 @@ export default function RsPerKmAnalysis() {
         <Card>
           <Space wrap align="center">
             <RangePicker
+              format={DATE_FORMAT}
               value={dateRange}
               onChange={handleDateChange}
               onCalendarChange={handleCalendarChange}

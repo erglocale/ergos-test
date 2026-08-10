@@ -8,6 +8,7 @@ import ReactECharts from "echarts-for-react";
 import { useMemo, useState } from "react";
 import { useDb } from "@/data/store";
 import type { Driver } from "@/data/types";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { RangePicker } = DatePicker;
 
@@ -188,7 +189,7 @@ export default function DriverAnalytics({ driver }: { driver: Driver }) {
               if (!values?.[0] || !values?.[1]) return;
               setRange([values[0], values[1]]);
             }}
-            format="DD MMM YYYY"
+            format={DATE_FORMAT}
           />
         </div>
       </Card>

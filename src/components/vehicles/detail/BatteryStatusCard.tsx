@@ -15,6 +15,7 @@ import {
   hasTelemetry,
   type SocAuxPoint,
 } from "./vehicleDetailUtils";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { RangePicker } = DatePicker;
 
@@ -193,7 +194,7 @@ function SocAndAuxChart({ vehicle, maxSocLimit }: { vehicle: Vehicle; maxSocLimi
               if (!values?.[0] || !values?.[1]) return;
               setRange([values[0], values[1]]);
             }}
-            format="DD MMM YYYY"
+            format={DATE_FORMAT}
           />
         )}
       </div>

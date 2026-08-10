@@ -18,6 +18,7 @@ import {
   getPresetRanges,
   SECTION_CARD,
 } from "./shared";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
@@ -490,6 +491,7 @@ export default function ChargingSessionAnalysis() {
         <div style={{ ...SECTION_CARD, padding: 16 }}>
           <Space wrap align="center" size={[12, 12]}>
             <RangePicker
+              format={DATE_FORMAT}
               value={dateRange}
               onChange={(dates) => {
                 if (dates && dates[0] && dates[1])

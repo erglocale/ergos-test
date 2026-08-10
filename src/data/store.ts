@@ -113,6 +113,17 @@ export function getDb(): Db {
   return merged;
 }
 
+const NO_LIMITS: Record<string, number> = {};
+
+/** Hub -> grid connection limit (kW) as configured in energy-brain. */
+export function getEnergyHubLimits(): Record<string, number> {
+  return energyOverlay?.hubGridLimitKw ?? NO_LIMITS;
+}
+
+export function useEnergyHubLimits(): Record<string, number> {
+  return useSyncExternalStore(subscribe, getEnergyHubLimits, getEnergyHubLimits);
+}
+
 export function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

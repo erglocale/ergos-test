@@ -10,7 +10,7 @@ import { IoCarSport } from "react-icons/io5";
 import { LuTimer } from "react-icons/lu";
 import {
   chargerOcppId,
-  deriveSocSeries,
+  deriveMeterSeries,
   fmtDate,
   fmtDateTime,
   getDurationString,
@@ -19,7 +19,6 @@ import {
   sessionBillingId,
   sessionMeterValues,
   sessionTransactionId,
-  vehicleVin,
 } from "@/components/charging-sessions/sessionUtils";
 import ChargerLocationMap from "@/components/maps/ChargerLocationMap";
 import { useDb } from "@/data/store";
@@ -88,10 +87,15 @@ export default function SessionDetail() {
   const chargepoint = session ? db.chargepoints.find((c) => c.id === session.chargerId) : undefined;
   const driver = session ? db.drivers.find((d) => d.vehicleReg === session.vehicleReg) : undefined;
 
-  const socSeries = useMemo(
-    () => (session ? deriveSocSeries(session, vehicle?.soc) : []),
-    [session, vehicle?.soc],
-  );
+  // Mirrors the production meter-values feed: one point per 30 s carrying
+  // energy / power / current / voltage, plus SoC from telematics.
+  const meterSeries = useMemo(() => {
+    if (!session) return [];
+    const cp = db.chargepoints.find((c) => c.id === session.chargerId);
+    const conn =
+      cp?.connectors.find((cn) => cn.id === session.connectorId) ?? cp?.connectors[0];
+    return deriveMeterSeries(session, conn?.powerKw ?? 3, vehicle?.soc);
+  }, [session, db.chargepoints, vehicle?.soc]);
 
   if (!session) {
     return (
@@ -108,14 +112,54 @@ export default function SessionDetail() {
   const hubName = hubForSession(session, db.chargepoints);
   const mapChargepoint = chargepoint ?? db.chargepoints[0];
   const ongoing = session.endTime === null;
+  // A live session has no recorded end SoC, so fall back to the pack's level now.
+  const endSoc = session.socEnd ?? (ongoing ? (vehicle?.soc ?? null) : null);
   const avgKw = sessionAvgPowerKw(session);
 
+  // Same five measurands, colours and units as the production chart; the
+  // legend toggles a line off, which is how the big cumulative energy
+  // register is kept out of the way there too.
+  const METRICS: {
+    name: string;
+    color: string;
+    unit: string;
+    pick: (p: (typeof meterSeries)[number]) => number | null;
+  }[] = [
+    { name: "Battery SoC (%)", color: "#f59e0b", unit: "%", pick: (p) => p.socPct },
+    { name: "Energy (kWh)", color: "#22c55e", unit: "kWh", pick: (p) => p.energyKwh },
+    { name: "Current (A)", color: "#60A5FA", unit: "A", pick: (p) => p.currentA },
+    { name: "Voltage (V)", color: "#A78BFA", unit: "V", pick: (p) => p.voltageV },
+    { name: "Power (kW)", color: "#75331e", unit: "kW", pick: (p) => p.powerKw },
+  ];
+  const unitByName = Object.fromEntries(METRICS.map((m) => [m.name, m.unit]));
+
   const chartOption = {
-    grid: { top: 50, right: 30, bottom: 60, left: 45 },
-    legend: { top: 0, icon: "circle", itemWidth: 12, data: ["Battery SoC (%)"] },
+    color: METRICS.map((m) => m.color),
+    grid: { top: 60, right: 30, bottom: 60, left: 55 },
+    legend: {
+      top: 0,
+      icon: "roundRect",
+      itemWidth: 14,
+      itemHeight: 14,
+      itemGap: 20,
+      data: METRICS.map((m) => m.name),
+    },
     tooltip: {
       trigger: "axis",
-      valueFormatter: (v: number) => `${Number(v).toFixed(1)}%`,
+      axisPointer: { type: "line" },
+      formatter: (params: { seriesName: string; value: [number, number]; marker: string }[]) => {
+        if (!params.length) return "";
+        const head = dayjs(params[0].value[0]).format("h:mm A");
+        const rows = params
+          .map(
+            (p) =>
+              `${p.marker}${p.seriesName.replace(/ \(.*\)$/, "")}: <b>${Number(
+                p.value[1],
+              ).toFixed(2)} ${unitByName[p.seriesName]}</b>`,
+          )
+          .join("<br/>");
+        return `${head}<br/>${rows}`;
+      },
     },
     xAxis: {
       type: "time",
@@ -127,24 +171,18 @@ export default function SessionDetail() {
       splitLine: { show: true, lineStyle: { type: "dashed", color: "#50585c2c" } },
     },
     yAxis: {
+      // Production keeps every measurand on one axis starting at zero.
       type: "value",
       min: 0,
-      max: 100,
-      axisLabel: { formatter: "{value}%" },
       splitLine: { lineStyle: { type: "dashed", color: "#50585c2c" } },
     },
-    series: [
-      {
-        name: "Battery SoC (%)",
-        type: "line",
-        showSymbol: false,
-        smooth: true,
-        lineStyle: { color: "#f59e0b", width: 2.5 },
-        itemStyle: { color: "#f59e0b" },
-        areaStyle: { color: "rgba(245,158,11,0.08)" },
-        data: socSeries,
-      },
-    ],
+    series: METRICS.map((m) => ({
+      name: m.name,
+      type: "line",
+      showSymbol: false,
+      lineStyle: { width: 2.5 },
+      data: meterSeries.map((p) => [p.t, m.pick(p)]),
+    })),
   };
 
   return (
@@ -250,24 +288,19 @@ export default function SessionDetail() {
                 {renderValue(vehicle?.make)} {renderValue(vehicle?.model)}
               </h3>
               <p className="text-sm text-gray-500">{renderValue(session.vehicleReg)}</p>
-              {vehicle && (
-                <Tag color={vehicle.soc < 25 ? "red" : "green"} style={{ marginTop: 4 }}>
-                  SoC {Math.round(vehicle.soc)}%
-                </Tag>
-              )}
             </div>
           </div>
           <div className="divide-y divide-gray-100">
             <DetailRow label="Driver" value={renderValue(driver?.name)} />
-            <DetailRow label="Phone Number" value={renderValue(driver?.phone)} />
-            <DetailRow label="Email Id" value={renderValue(driver?.email)} />
             <DetailRow label="Battery Capacity" value={renderValue(vehicle?.batteryKwh, " kWh")} />
-            <DetailRow label="VIN" value={renderValue(vehicleVin(vehicle))} />
+            {/* SoC for THIS session, not the vehicle's live pack level. */}
+            <DetailRow label="Start SoC" value={renderValue(Math.round(session.socStart), "%")} />
             <DetailRow
-              label="Range"
-              value={
-                <>Upto {renderValue(vehicle ? Math.round(vehicle.batteryKwh * 11.9) : null, " kms")}</>
-              }
+              label={ongoing ? "Current SoC" : "End SoC"}
+              value={renderValue(
+                endSoc === null || endSoc === undefined ? null : Math.round(endSoc),
+                "%",
+              )}
             />
           </div>
           <div className="flex flex-grow flex-col p-4">
@@ -302,7 +335,7 @@ export default function SessionDetail() {
         <Title level={4} style={{ marginTop: 0, marginBottom: 4 }}>
           Meter Values vs. Time
         </Title>
-        {socSeries.length > 0 ? (
+        {meterSeries.length > 0 ? (
           <ReactECharts option={chartOption} style={{ height: 384 }} notMerge />
         ) : (
           <div className="flex h-64 items-center justify-center">

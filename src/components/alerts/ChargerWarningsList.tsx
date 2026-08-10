@@ -16,6 +16,7 @@ import {
 import { useDb } from "@/data/store";
 import type { ChargerWarning } from "@/data/types";
 import { fmtDateTime } from "./alertUtils";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const splitCamelCaseAndUppercase = (str?: string | null) => {
   if (!str) return "";
@@ -219,7 +220,7 @@ export default function ChargerWarnings() {
               setEndDate(value[1].toISOString());
             }
           }}
-          format="DD MMM YYYY"
+          format={DATE_FORMAT}
           allowClear={false}
         />
 

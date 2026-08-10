@@ -20,6 +20,7 @@ import { MdArrowDownward, MdArrowUpward } from "react-icons/md";
 import { useDb } from "@/data/store";
 import ChargerWarning, { type ChargerWarningItem } from "./ChargerWarning";
 import DashboardMap from "@/components/maps/DashboardMap";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { Text, Title } = Typography;
 
@@ -220,7 +221,7 @@ export default function ChargerHostLayout() {
               setEndDate(dates[1].toISOString());
             }
           }}
-          format="DD MMM YYYY"
+          format={DATE_FORMAT}
           allowClear={false}
         />
       </div>

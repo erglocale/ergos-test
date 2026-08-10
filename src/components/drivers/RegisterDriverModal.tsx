@@ -3,6 +3,7 @@
 import { Button, Col, DatePicker, Form, Input, message, Modal, Row, Typography } from "antd";
 import dayjs from "dayjs";
 import { createRow, nextId } from "@/data/store";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { Text } = Typography;
 
@@ -170,7 +171,7 @@ export default function RegisterDriverModal({
             <Col span={12}>
               <Text style={labelStyle}>Expiry Date</Text>
               <Form.Item name="expiryDate" style={{ marginBottom: 0 }}>
-                <DatePicker style={inputStyle} />
+                <DatePicker style={inputStyle} format={DATE_FORMAT} />
               </Form.Item>
             </Col>
           </Row>

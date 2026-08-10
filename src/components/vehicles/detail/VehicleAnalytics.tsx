@@ -5,6 +5,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import { useMemo, useState } from "react";
 import { useDb } from "@/data/store";
 import type { Vehicle } from "@/data/types";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { RangePicker } = DatePicker;
 
@@ -82,6 +83,7 @@ function DateControls({
         options={PRESETS.map((p) => ({ label: p.label, value: p.value }))}
       />
       <RangePicker
+        format={DATE_FORMAT}
         allowClear={false}
         size="middle"
         style={{ width: 280 }}

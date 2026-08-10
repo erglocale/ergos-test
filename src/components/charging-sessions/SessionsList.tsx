@@ -15,6 +15,7 @@ import {
   hubForSession,
   sessionAvgPowerKw,
 } from "./sessionUtils";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -285,7 +286,7 @@ export default function SessionsList({ hideHeader = false }: { hideHeader?: bool
 
         <Row gutter={[16, 16]} align="bottom">
           <Col xs={24} sm={12} md={8} lg={6}>
-            <RangePicker value={internalRange} onChange={handleDateChange} style={{ width: "100%" }} />
+            <RangePicker value={internalRange} onChange={handleDateChange} style={{ width: "100%" }} format={DATE_FORMAT} />
           </Col>
           <Col xs={24} sm={12} md={8} lg={12}>
             <div style={{ display: "flex", gap: 8 }}>

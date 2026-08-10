@@ -19,6 +19,7 @@ import {
   formatAlertType,
   getAlertSummary,
 } from "./alertUtils";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 dayjs.extend(relativeTime);
 dayjs.extend(localizedFormat);
@@ -470,7 +471,7 @@ export default function VehicleWarnings() {
               setEndDate(value[1].toISOString());
             }
           }}
-          format="DD MMM YYYY"
+          format={DATE_FORMAT}
           allowClear={false}
         />
 

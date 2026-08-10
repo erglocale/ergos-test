@@ -2,12 +2,12 @@
 
 import dayjs, { type Dayjs } from "dayjs";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchPredictedSchedules,
   type PredictedSchedule,
 } from "@/data/energyBrain";
-import { useDb } from "@/data/store";
+import { useDb, useEnergyHubLimits } from "@/data/store";
 import type { Chargepoint, ChargingSession } from "@/data/types";
 
 // Calendar/Gantt view of each charger's sessions (demo spec item 1, Aug 2026).
@@ -19,13 +19,21 @@ import type { Chargepoint, ChargingSession } from "@/data/types";
 const PX_PER_HOUR = 160;
 const HOURS_BACK = 72;
 const HOURS_AHEAD = 24;
-const LANE_HEIGHT = 46;
 const SAMPLE_MIN = 15;
+
+// Block internals: vehicle label, then the kW curve, then the SoC bar.
+const LABEL_H = 12;
+const SPARK_H = 26;
+const SOC_H = 10;
+const LANE_HEIGHT = LABEL_H + SPARK_H + SOC_H + 16;
+const SITE_ROW_H = 56;
 
 const BLUE = "#6366f1";
 const GREEN = "#22c55e";
+const GREEN_PALE = "#bbf7d0";
 const GREEN_DARK = "#14532d";
 const ORANGE = "#f97316";
+const ORANGE_PALE = "#fed7aa";
 
 function hashInt(s: string): number {
   let h = 2166136261;
@@ -87,6 +95,86 @@ function Sparkline({
   );
 }
 
+function Swatch({ color, dashed }: { color: string; dashed?: boolean }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: 14,
+        height: 9,
+        borderRadius: 3,
+        background: color,
+        border: dashed ? `1px dashed ${ORANGE}` : "none",
+        verticalAlign: "middle",
+      }}
+    />
+  );
+}
+
+/** The bars carry two shades each; without this nobody can read the chart. */
+function Legend() {
+  const item = (children: ReactNode) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{children}</span>
+  );
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 16,
+        padding: "8px 12px",
+        borderBottom: "1px solid #f0f0f0",
+        fontSize: 11,
+        color: "#6b7280",
+      }}
+    >
+      {item(
+        <>
+          <svg width={16} height={9}>
+            <polyline points="0,8 5,3 10,5 16,1" fill="none" stroke={BLUE} strokeWidth={1.6} />
+          </svg>
+          power drawn (kW)
+        </>,
+      )}
+      {item(
+        <>
+          <Swatch color={GREEN_PALE} /> SoC on arrival
+        </>,
+      )}
+      {item(
+        <>
+          <Swatch color={GREEN} /> SoC added this session
+        </>,
+      )}
+      {item(
+        <>
+          <Swatch color={GREEN_DARK} /> target reached
+        </>,
+      )}
+      {item(
+        <>
+          <Swatch color={ORANGE_PALE} dashed /> <Swatch color={ORANGE} /> planned by energy brain
+        </>,
+      )}
+      {item(
+        <>
+          <span
+            style={{
+              display: "inline-block",
+              width: 2,
+              height: 11,
+              background: "#111827",
+              verticalAlign: "middle",
+            }}
+          />
+          now
+        </>,
+      )}
+    </div>
+  );
+}
+
 interface Block {
   key: string;
   startMs: number;
@@ -124,6 +212,7 @@ export default function ChargerScheduleCalendar({
   chargers: Chargepoint[];
 }) {
   const db = useDb();
+  const hubGridLimits = useEnergyHubLimits();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState<Dayjs>(() => dayjs());
   const [predicted, setPredicted] = useState<PredictedSchedule[]>([]);
@@ -172,6 +261,16 @@ export default function ChargerScheduleCalendar({
     }
     return Array.from(groups.entries());
   }, [chargers]);
+
+  /**
+   * The hub's ceiling. For an energy-brain site that is the network's grid
+   * connection limit, which is what the optimizer actually rations against —
+   * NOT the sum of every charge point (sites are deliberately oversubscribed).
+   * Fixture hubs have no grid figure, so they fall back to installed capacity.
+   */
+  const hubLimitKw = (hub: string, cps: Chargepoint[]) =>
+    hubGridLimits[hub] ??
+    cps.reduce((sum, cp) => sum + cp.connectors.reduce((s, cn) => s + cn.powerKw, 0), 0);
 
   const connectorKw = (cp: Chargepoint, connectorId: number) =>
     cp.connectors.find((cn) => cn.id === connectorId)?.powerKw ??
@@ -295,7 +394,7 @@ export default function ChargerScheduleCalendar({
             fontSize: 10,
             fontWeight: 600,
             color: "#4b5563",
-            lineHeight: "11px",
+            lineHeight: `${LABEL_H}px`,
             whiteSpace: "nowrap",
             overflow: "hidden",
           }}
@@ -309,16 +408,17 @@ export default function ChargerScheduleCalendar({
           values={b.power}
           color={accent}
           width={width}
-          height={16}
+          height={SPARK_H}
           scaleMax={b.ratedKw}
         />
 
-        {/* SoC progress bar with end cap + badge */}
+        {/* SoC progress bar: pale = SoC the vehicle arrived with, solid = SoC
+            gained in this session, dark cap = target reached. */}
         <div
           style={{
             position: "relative",
-            height: 8,
-            borderRadius: 4,
+            height: SOC_H,
+            borderRadius: SOC_H / 2,
             background: "#e5e7eb",
             overflow: "hidden",
             border: isPredicted ? `1px dashed ${ORANGE}` : "none",
@@ -329,8 +429,7 @@ export default function ChargerScheduleCalendar({
               position: "absolute",
               inset: 0,
               width: `${socFrom}%`,
-              background: isPredicted ? "#fed7aa" : GREEN,
-              opacity: isPredicted ? 1 : 0.55,
+              background: isPredicted ? ORANGE_PALE : GREEN_PALE,
             }}
           />
           <div
@@ -360,7 +459,7 @@ export default function ChargerScheduleCalendar({
           style={{
             position: "absolute",
             right: -6,
-            top: 12,
+            top: LABEL_H + SPARK_H - 3,
             display: "flex",
             alignItems: "center",
             gap: 4,
@@ -402,21 +501,19 @@ export default function ChargerScheduleCalendar({
         overflow: "hidden",
       }}
     >
+      <Legend />
       <div style={{ display: "flex" }}>
         {/* Sticky left column */}
         <div style={{ flex: "0 0 210px", borderRight: "1px solid #f0f0f0" }}>
           <div style={{ height: 34, borderBottom: "1px solid #f0f0f0" }} />
           {hubGroups.map(([hub, cps]) => {
             const isCollapsed = collapsed[hub];
-            const gridLimit = cps.reduce(
-              (sum, cp) => sum + cp.connectors.reduce((s, cn) => s + cn.powerKw, 0),
-              0,
-            );
+            const gridLimit = hubLimitKw(hub, cps);
             return (
               <div key={hub}>
                 <div
                   style={{
-                    height: 40,
+                    height: SITE_ROW_H,
                     display: "flex",
                     alignItems: "center",
                     gap: 6,
@@ -448,7 +545,8 @@ export default function ChargerScheduleCalendar({
                       whiteSpace: "nowrap",
                     }}
                   >
-                    Limit {gridLimit} kW
+                    {hubGridLimits[hub] === undefined ? "Limit" : "Grid"}{" "}
+                    {Math.round(gridLimit)} kW
                   </span>
                 </div>
                 {!isCollapsed &&
@@ -509,16 +607,13 @@ export default function ChargerScheduleCalendar({
             {hubGroups.map(([hub, cps]) => {
               const isCollapsed = collapsed[hub];
               const { values, peak } = sitePower(cps);
-              const siteLimit = cps.reduce(
-                (sum, cp) => sum + cp.connectors.reduce((s, cn) => s + cn.powerKw, 0),
-                0,
-              );
+              const siteLimit = hubLimitKw(hub, cps);
               return (
                 <div key={hub}>
                   {/* Site power curve across the whole timeline */}
                   <div
                     style={{
-                      height: 40,
+                      height: SITE_ROW_H,
                       backgroundColor: "#fafafa",
                       borderTop: "1px solid #f0f0f0",
                       borderBottom: "1px solid #f0f0f0",
@@ -530,7 +625,7 @@ export default function ChargerScheduleCalendar({
                         values={values}
                         color={BLUE}
                         width={totalWidth}
-                        height={40}
+                        height={SITE_ROW_H}
                         scaleMax={siteLimit}
                       />
                     </div>

@@ -4,6 +4,7 @@ import { DatePicker, Empty, Segmented, Tooltip, Typography } from "antd";
 import dayjs, { Dayjs } from "dayjs";
 import { useMemo, useState } from "react";
 import { useDb } from "@/data/store";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { RangePicker } = DatePicker;
 const { Title } = Typography;
@@ -121,6 +122,7 @@ function DateControls({
         options={PRESETS.map((p) => ({ label: p.label, value: p.value }))}
       />
       <RangePicker
+        format={DATE_FORMAT}
         allowClear={false}
         size="middle"
         style={{ width: 280 }}

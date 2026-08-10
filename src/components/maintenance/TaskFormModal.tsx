@@ -13,6 +13,7 @@ import {
 import dayjs, { Dayjs } from "dayjs";
 import { useEffect } from "react";
 import type { MaintenanceTask } from "@/data/types";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 export interface TaskFormVehicle {
   id: string;
@@ -230,7 +231,7 @@ export default function TaskFormModal({
                 : undefined
             }
           >
-            <DatePicker style={{ width: "100%" }} format="DD/MM/YYYY" />
+            <DatePicker style={{ width: "100%" }} format={DATE_FORMAT} />
           </Form.Item>
         </div>
 

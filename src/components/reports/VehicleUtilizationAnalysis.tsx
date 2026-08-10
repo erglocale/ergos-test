@@ -30,6 +30,7 @@ import {
   formatReportDate,
   getPresetRanges,
 } from "./shared";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
@@ -789,6 +790,7 @@ export default function VehicleUtilizationAnalysis() {
             {/* ── Toolbar ─────────────────────────────────────────────── */}
             <Space wrap align="center">
               <RangePicker
+                format={DATE_FORMAT}
                 value={dateRange}
                 onChange={(dates) => {
                   if (dates && dates[0] && dates[1])

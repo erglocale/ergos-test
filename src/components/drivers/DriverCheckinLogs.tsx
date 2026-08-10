@@ -14,6 +14,7 @@ import {
 } from "@/components/vehicles/detail/vehicleDetailUtils";
 import { useDb } from "@/data/store";
 import type { Driver } from "@/data/types";
+import { DATE_FORMAT } from "@/lib/dateFormat";
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -146,7 +147,7 @@ export default function DriverCheckinLogs({ driver }: { driver: Driver }) {
   return (
     <>
       <div className="mb-4 flex w-full items-center justify-between">
-        <RangePicker value={range} onChange={handleDateChange} format="DD MMM YYYY" />
+        <RangePicker value={range} onChange={handleDateChange} format={DATE_FORMAT} />
 
         <Button
           type="primary"
