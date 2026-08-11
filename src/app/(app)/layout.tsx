@@ -17,7 +17,6 @@ import { AiFillHome } from "react-icons/ai";
 import { BiTrip } from "react-icons/bi";
 import { FaAddressCard, FaWarehouse, FaWrench } from "react-icons/fa";
 import { ImPower } from "react-icons/im";
-import { MdEvStation } from "react-icons/md";
 import { TbReportAnalytics } from "react-icons/tb";
 import EnergyBrainSync from "@/components/energy/EnergyBrainSync";
 import LiveSimulation from "@/components/energy/LiveSimulation";
@@ -34,7 +33,8 @@ const MENU_ITEMS = [
   { label: "Alerts", icon: <InfoCircleFilled style={ICON_COLOR} />, href: "/alerts" },
   { label: "Charging Sessions", icon: <ImPower style={ICON_COLOR} />, href: "/chargingSessions" },
   { label: "Trips", icon: <BiTrip style={ICON_COLOR} />, href: "/trips" },
-  { label: "Chargepoints", icon: <MdEvStation style={ICON_COLOR} />, href: "/chargingStations" },
+  // Chargepoints folded into Hubs (demo spec item 5) — the charger schedule now
+  // lives under the hub cards. /chargingStations still resolves for deep links.
   { label: "Hubs", icon: <FaWarehouse style={ICON_COLOR} />, href: "/hubs" },
   { label: "Drivers", icon: <FaAddressCard style={ICON_COLOR} />, href: "/drivers" },
   { label: "Maintenance", icon: <FaWrench style={ICON_COLOR} />, href: "/maintenance" },

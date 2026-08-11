@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import ChargerAnalytics from "@/components/chargers/ChargerAnalytics";
 import ChargerControls from "@/components/chargers/ChargerControls";
+import ChargerOverview from "@/components/chargers/ChargerOverview";
 import ChargerSessionsList from "@/components/chargers/ChargerSessionsList";
 import Connectors from "@/components/chargers/Connectors";
 import { deriveCharger } from "@/components/chargers/derive";
@@ -188,8 +189,14 @@ export default function Details() {
       </div>
 
       <Tabs
-        defaultActiveKey="1"
+        defaultActiveKey="0"
         items={[
+          {
+            key: "0",
+            label: "Overview",
+            children: <ChargerOverview cp={chargerData} />,
+            style: { paddingTop: "0px" },
+          },
           { key: "1", label: "Details", children: detailsTab },
           {
             key: "2",

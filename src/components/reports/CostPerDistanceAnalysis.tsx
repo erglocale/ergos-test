@@ -9,14 +9,18 @@ import type { Trip } from "@/data/types";
 import VehicleSelectionModal from "./VehicleSelectionModal";
 import { DateRange, downloadCsv } from "./shared";
 import { DATE_FORMAT } from "@/lib/dateFormat";
+import {
+  costPerDistanceLabel,
+  money,
+  setUnitSystem,
+  toDistance,
+  useUnits,
+  type UnitConfig,
+} from "@/lib/units";
 
 const { RangePicker } = DatePicker;
 const MAX_WIDTH = 1200;
 const MIN_DAYS = 7;
-
-// Fixtures carry no per-km tariff — energy cost is derived from trip energy at
-// a flat hub rate so ₹/km is realistic.
-const RS_PER_KWH = 8.5;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -209,7 +213,16 @@ interface VehicleAgg {
   daily: { date: string; cost_rs: number; distance_km: number }[];
 }
 
-function aggregateTrips(trips: Trip[], range: DateRange | null): VehicleAgg[] {
+/**
+ * Cost is derived from trip energy at the retail price for the active
+ * currency — the fixtures carry no per-trip tariff. Distances stay in km here
+ * and are converted for display, so switching units never rewrites the data.
+ */
+function aggregateTrips(
+  trips: Trip[],
+  range: DateRange | null,
+  pricePerKwh: number,
+): VehicleAgg[] {
   if (!range) return [];
   const [start, end] = range;
   const byPlate: Record<string, Record<string, { cost: number; dist: number }>> = {};
@@ -219,7 +232,7 @@ function aggregateTrips(trips: Trip[], range: DateRange | null): VehicleAgg[] {
     const date = ts.format("YYYY-MM-DD");
     const plate = t.vehicleReg;
     const bucket = ((byPlate[plate] ??= {})[date] ??= { cost: 0, dist: 0 });
-    bucket.cost += (t.energyKwh || 0) * RS_PER_KWH;
+    bucket.cost += (t.energyKwh || 0) * pricePerKwh;
     bucket.dist += t.distanceKm || 0;
   }
   return Object.entries(byPlate).map(([plate, days]) => {
@@ -244,9 +257,10 @@ function aggregateTrips(trips: Trip[], range: DateRange | null): VehicleAgg[] {
 
 // ─── main component ───────────────────────────────────────────────────────────
 
-export default function RsPerKmAnalysis() {
+export default function CostPerDistanceAnalysis() {
   const db = useDb();
   const vehicles = db.vehicles;
+  const units = useUnits();
 
   const [dateRange, setDateRange] = useState<DateRange>(DEFAULT_DATE_RANGE);
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>(() =>
@@ -317,12 +331,12 @@ export default function RsPerKmAnalysis() {
 
   // ── datasets ("queries" resolve instantly from the store) ──────────────────
   const rawData = useMemo(
-    () => aggregateTrips(db.trips, reportParams),
-    [db.trips, reportParams],
+    () => aggregateTrips(db.trips, reportParams, units.energyPricePerKwh),
+    [db.trips, reportParams, units.energyPricePerKwh],
   );
   const prevRawData = useMemo(
-    () => aggregateTrips(db.trips, prevReportParams),
-    [db.trips, prevReportParams],
+    () => aggregateTrips(db.trips, prevReportParams, units.energyPricePerKwh),
+    [db.trips, prevReportParams, units.energyPricePerKwh],
   );
 
   const filteredData = useMemo(() => {
@@ -390,6 +404,11 @@ export default function RsPerKmAnalysis() {
     }),
     [summaryKpis, prevKpis],
   );
+
+  // Everything is stored per km; these two convert at the display boundary.
+  const perDistance = (costPerKm: number | null | undefined) =>
+    costPerKm == null ? null : costPerKm / units.kmFactor;
+  const dist = (km: number) => toDistance(km, units);
 
   // ── vehicle rows ───────────────────────────────────────────────────────────
   const vehicleRows = useMemo(
@@ -492,7 +511,7 @@ export default function RsPerKmAnalysis() {
         formatter: (params: { name: string; value: number | null }[]) => {
           const p = params[0];
           return `<div style="font-weight:600;margin-bottom:4px;">${p.name}</div>
-                <span style="color:#FB923C;">₹/km: </span>
+                <span style="color:#FB923C;">${costPerDistanceLabel(units)}: </span>
                 <span style="font-weight:700;">${p.value != null ? p.value.toFixed(2) : "N/A"}</span>`;
         },
       },
@@ -506,13 +525,13 @@ export default function RsPerKmAnalysis() {
       },
       yAxis: {
         type: "value",
-        name: "₹ / km",
+        name: costPerDistanceLabel(units),
         nameTextStyle: { color: "#78716C", fontSize: 12 },
         splitLine: { lineStyle: { color: "#F5F5F4", type: "dashed" } },
         axisLabel: {
           color: "#78716C",
           fontSize: 12,
-          formatter: (v: number) => `₹${v.toFixed(2)}`,
+          formatter: (v: number) => `${units.currencySymbol}${v.toFixed(2)}`,
         },
       },
       series: [
@@ -536,7 +555,9 @@ export default function RsPerKmAnalysis() {
               ],
             },
           },
-          data: trendData.map((r) => r.rs_per_km),
+          data: trendData.map((r) =>
+            r.rs_per_km == null ? null : Number((r.rs_per_km / units.kmFactor).toFixed(4)),
+          ),
           markLine: {
             silent: true,
             symbol: "none",
@@ -545,14 +566,14 @@ export default function RsPerKmAnalysis() {
               color: "#F59E0B",
               fontSize: 11,
               formatter: (p: { value: number }) =>
-                `Avg ₹${Number(p.value).toFixed(2)}`,
+                `Avg ${units.currencySymbol}${Number(p.value).toFixed(2)}`,
             },
             data: [{ type: "average", name: "Fleet avg" }],
           },
         },
       ],
     }),
-    [trendData],
+    [trendData, units],
   );
 
   // ── actions ────────────────────────────────────────────────────────────────
@@ -566,15 +587,21 @@ export default function RsPerKmAnalysis() {
 
   const handleDownloadTable = () => {
     if (!vehicleRows.length) return;
-    const headers = ["#", "Vehicle", "Distance (km)", "Cost (Rs)", "Rs / km"];
+    const headers = [
+      "#",
+      "Vehicle",
+      `Distance (${units.distanceUnit})`,
+      `Cost (${units.currencyCode})`,
+      `${units.currencyCode} / ${units.distanceUnit}`,
+    ];
     const rows = vehicleRows.map((row, i) => [
       i + 1,
       row.plate,
-      row.dist,
+      Math.round(dist(row.dist) * 100) / 100,
       row.cost,
-      row.rsPerKm?.toFixed(4) ?? "",
+      perDistance(row.rsPerKm)?.toFixed(4) ?? "",
     ]);
-    downloadCsv([headers, ...rows], "vehicle_breakdown.csv");
+    downloadCsv([headers, ...rows], "cost_per_distance.csv");
   };
 
   // ── KPI tile config ────────────────────────────────────────────────────────
@@ -582,16 +609,16 @@ export default function RsPerKmAnalysis() {
     {
       icon: "💰",
       label: "Amount Spent",
-      value: `₹ ${summaryKpis.totalCost.toLocaleString()}`,
-      avg: `Avg ₹ ${summaryKpis.avgCostPerVehicle.toLocaleString()} / vehicle`,
+      value: money(summaryKpis.totalCost, units),
+      avg: `Avg ${money(summaryKpis.avgCostPerVehicle, units)} / vehicle`,
       delta: deltas.cost,
       delay: "0.2s",
     },
     {
       icon: "📍",
       label: "Distance Travelled",
-      value: `${summaryKpis.totalDistance.toLocaleString()} km`,
-      avg: `Avg ${summaryKpis.avgDistancePerVehicle.toLocaleString()} km / vehicle`,
+      value: `${Math.round(dist(summaryKpis.totalDistance)).toLocaleString()} ${units.distanceUnit}`,
+      avg: `Avg ${Math.round(dist(summaryKpis.avgDistancePerVehicle)).toLocaleString()} ${units.distanceUnit} / vehicle`,
       delta: deltas.distance,
       delay: "0.35s",
     },
@@ -648,6 +675,15 @@ export default function RsPerKmAnalysis() {
             <Button onClick={() => setModalOpen(true)}>
               Select Vehicles ({selectedVehicleIds.length})
             </Button>
+            {/* Units follow the customer, not the build (demo spec item 9). */}
+            <Segmented
+              value={units.system}
+              onChange={(val) => setUnitSystem(val as UnitConfig["system"])}
+              options={[
+                { label: "₹ / km", value: "metric" },
+                { label: "$ / mi", value: "imperial" },
+              ]}
+            />
             <Button
               type="primary"
               onClick={handleGenerateReport}
@@ -707,7 +743,7 @@ export default function RsPerKmAnalysis() {
                       letterSpacing: "0.8px",
                     }}
                   >
-                    Fleet Average · ₹/km
+                    Fleet Average · {costPerDistanceLabel(units)}
                   </div>
 
                   <span
@@ -720,10 +756,10 @@ export default function RsPerKmAnalysis() {
                       fontVariantNumeric: "tabular-nums",
                     }}
                   >
-                    {summaryKpis.avgRsPerKm?.toFixed(2) ?? "N/A"}
+                    {perDistance(summaryKpis.avgRsPerKm)?.toFixed(2) ?? "N/A"}
                   </span>
                   <span style={{ fontSize: 20, color: "#78716C", fontWeight: 500 }}>
-                    ₹ / km
+                    {costPerDistanceLabel(units)}
                   </span>
                   <DeltaBadge delta={deltas.rsPerKm} />
                 </div>
@@ -800,7 +836,8 @@ export default function RsPerKmAnalysis() {
                   }}
                 >
                   <span style={{ fontSize: 14, fontWeight: 600 }}>
-                    {isWeeklyView ? "Weekly" : "Monthly"} Fleet Trend · ₹/km
+                    {isWeeklyView ? "Weekly" : "Monthly"} Fleet Trend ·{" "}
+                    {costPerDistanceLabel(units)}
                   </span>
                   <div className="rs-pill-toggle">
                     <Segmented
@@ -836,7 +873,7 @@ export default function RsPerKmAnalysis() {
               <Card
                 title={
                   <span style={{ fontSize: 14, fontWeight: 600 }}>
-                    Vehicle Breakdown · sorted by ₹ / km
+                    Vehicle Breakdown · sorted by {costPerDistanceLabel(units)}
                   </span>
                 }
                 extra={<DownloadIconButton onClick={handleDownloadTable} />}
@@ -864,8 +901,8 @@ export default function RsPerKmAnalysis() {
                           { label: "#", align: "left" as const },
                           { label: "Vehicle", align: "left" as const },
                           { label: "Distance", align: "right" as const },
-                          { label: "Cost (₹)", align: "right" as const },
-                          { label: "₹ / km", align: "right" as const },
+                          { label: `Cost (${units.currencySymbol})`, align: "right" as const },
+                          { label: costPerDistanceLabel(units), align: "right" as const },
                         ].map((col) => (
                           <th
                             key={col.label}
@@ -921,7 +958,7 @@ export default function RsPerKmAnalysis() {
                               color: "#57534E",
                             }}
                           >
-                            {row.dist.toLocaleString()} km
+                            {Math.round(dist(row.dist)).toLocaleString()} {units.distanceUnit}
                           </td>
                           <td
                             style={{
@@ -930,7 +967,7 @@ export default function RsPerKmAnalysis() {
                               color: "#57534E",
                             }}
                           >
-                            ₹ {row.cost.toLocaleString()}
+                            {money(row.cost, units)}
                           </td>
                           <td
                             style={{
@@ -941,7 +978,7 @@ export default function RsPerKmAnalysis() {
                               color: "#1C1917",
                             }}
                           >
-                            {row.rsPerKm.toFixed(2)}
+                            {perDistance(row.rsPerKm)?.toFixed(2) ?? "N/A"}
                           </td>
                         </tr>
                       ))}

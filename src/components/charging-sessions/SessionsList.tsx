@@ -31,7 +31,26 @@ function getSessionLocation(session: ChargingSession, address: string | undefine
   return parts.join(", ");
 }
 
-export default function SessionsList({ hideHeader = false }: { hideHeader?: boolean }) {
+/** What the filter bar currently selects — shared with the live section. */
+export interface SessionFilters {
+  /** null = all hubs (the default). */
+  hub: string | null;
+  /** Empty = every vehicle. */
+  plates: string[];
+}
+
+export default function SessionsList({
+  hideHeader = false,
+  renderLive,
+}: {
+  hideHeader?: boolean;
+  /**
+   * Rendered between the filter bar and the sessions table. Demo spec item 6:
+   * the filters moved above the live charging block so ongoing sessions can be
+   * narrowed to one hub — on a large fleet there are many at once.
+   */
+  renderLive?: (filters: SessionFilters) => React.ReactNode;
+}) {
   const db = useDb();
   const [limit] = useState(20);
   const [currentPageNumber, setCurrentPageNumber] = useState(1);
@@ -55,16 +74,7 @@ export default function SessionsList({ hideHeader = false }: { hideHeader?: bool
     return hubs.map((h) => ({ label: h, value: h }));
   }, [db.chargepoints]);
 
-  const [hubQuickFilter, setHubQuickFilter] = useState<string | null>(null);
-  const handleHubQuickSelect = (hub: string | null | undefined) => {
-    setHubQuickFilter(hub ?? null);
-    if (!hub) {
-      setVehicleNumberPlates([]);
-      return;
-    }
-    const platesInHub = db.vehicles.filter((v) => v.hub === hub).map((v) => v.reg);
-    setVehicleNumberPlates(platesInHub);
-  };
+  const [hubFilter, setHubFilter] = useState<string | null>(null);
 
   const filteredSessions = useMemo(() => {
     const [start, end] = internalRange;
@@ -72,9 +82,12 @@ export default function SessionsList({ hideHeader = false }: { hideHeader?: bool
       const t = dayjs(s.startTime);
       if (t.isBefore(start.startOf("day")) || t.isAfter(end.endOf("day"))) return false;
       if (vehicleNumberPlates.length && !vehicleNumberPlates.includes(s.vehicleReg)) return false;
+      // Hub is where the charging happened, not where the vehicle is based —
+      // a Six Mile van plugged in at Beltola belongs to Beltola's sessions.
+      if (hubFilter && hubForSession(s, db.chargepoints) !== hubFilter) return false;
       return true;
     });
-  }, [db.sessions, internalRange, vehicleNumberPlates]);
+  }, [db.sessions, db.chargepoints, internalRange, vehicleNumberPlates, hubFilter]);
 
   // No sessionType in the fixtures — treat driverless vehicles' sessions as admin charging.
   const fleetSessions = useMemo(
@@ -104,7 +117,7 @@ export default function SessionsList({ hideHeader = false }: { hideHeader?: bool
 
   useEffect(() => {
     setCurrentPageNumber(1);
-  }, [internalRange, vehicleNumberPlates]);
+  }, [internalRange, vehicleNumberPlates, hubFilter]);
 
   const handleDateChange: React.ComponentProps<typeof RangePicker>["onChange"] = (dates) => {
     if (dates && dates[0] && dates[1]) {
@@ -278,12 +291,6 @@ export default function SessionsList({ hideHeader = false }: { hideHeader?: bool
   return (
     <>
       <div style={{ marginBottom: "16px" }}>
-        {!hideHeader && (
-          <div style={{ marginBottom: "16px" }}>
-            <Text style={{ fontSize: "18px", fontWeight: 600 }}>Charging Sessions</Text>
-          </div>
-        )}
-
         <Row gutter={[16, 16]} align="bottom">
           <Col xs={24} sm={12} md={8} lg={6}>
             <RangePicker value={internalRange} onChange={handleDateChange} style={{ width: "100%" }} format={DATE_FORMAT} />
@@ -291,10 +298,10 @@ export default function SessionsList({ hideHeader = false }: { hideHeader?: bool
           <Col xs={24} sm={12} md={8} lg={12}>
             <div style={{ display: "flex", gap: 8 }}>
               <Select
-                value={hubQuickFilter}
-                onChange={handleHubQuickSelect}
-                placeholder="Hub"
-                style={{ width: 140, minWidth: 140 }}
+                value={hubFilter}
+                onChange={(hub: string | null | undefined) => setHubFilter(hub ?? null)}
+                placeholder="All hubs"
+                style={{ width: 160, minWidth: 160 }}
                 options={hubOptions}
                 allowClear
               />
@@ -360,6 +367,14 @@ export default function SessionsList({ hideHeader = false }: { hideHeader?: bool
           )}
         </Row>
       </div>
+
+      {renderLive?.({ hub: hubFilter, plates: vehicleNumberPlates })}
+
+      {!hideHeader && (
+        <div style={{ marginTop: "20px", marginBottom: "8px" }}>
+          <Text style={{ fontSize: "18px", fontWeight: 600 }}>Charging Sessions</Text>
+        </div>
+      )}
 
       <Tabs
         activeKey={sessionTypeActiveTabKey}

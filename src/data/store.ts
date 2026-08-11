@@ -3,7 +3,14 @@
 import { useSyncExternalStore } from "react";
 import type { EnergyOverlay } from "./energyBrain";
 import { makeFixtures } from "./fixtures";
-import { advance, plannedPowerKw, type SimInputs, type SimState } from "./liveSim";
+import {
+  advance,
+  chargePowerKw,
+  plannedPowerKw,
+  taperFactor,
+  type SimInputs,
+  type SimState,
+} from "./liveSim";
 import type { CollectionKey, Db, Profile } from "./types";
 
 // All demo data lives in localStorage under this key. CRUD mutates it in
@@ -179,6 +186,15 @@ export function flushSimulation(): void {
 
 const isEnergyBrainSession = (id: string) => id.startsWith("EB-");
 
+/**
+ * True when a vehicle comes from the energy-brain overlay rather than the
+ * fixtures. Those rows are owned by energy-brain — writing to them here would
+ * be overwritten on the next poll, so callers skip them instead.
+ */
+export function isEnergyBrainVehicle(id: string): boolean {
+  return energyOverlay?.vehicles.some((v) => v.id === id) ?? false;
+}
+
 function applySim(db: Db): Db {
   const socByReg = new Map<string, number>();
   const sessions =
@@ -237,11 +253,20 @@ export function tickSimulation(nowMs: number = Date.now()): void {
   const seen = new Set<string>();
   const completed: { session: (typeof live)[number]; soc: number; energyKwh: number }[] = [];
 
-  for (const s of live) {
-    seen.add(s.id);
+  // Chargers are routinely oversubscribed against the site's grid connection,
+  // so the sum of what every session *could* draw is capped to the hub's grid
+  // limit and shared out proportionally. Without this a hub can report more kW
+  // than its connection allows (e.g. two 22 kW connectors on a 20 kW site).
+  const hubOf = new Map<string, string>();
+  for (const cp of db.chargepoints) hubOf.set(cp.id, cp.hub);
+  const gridLimits = energyOverlay?.hubGridLimitKw ?? {};
+  const wantByHub = new Map<string, number>();
+  const wantById = new Map<string, number>();
+
+  const inputsFor = (s: (typeof live)[number]): SimInputs => {
     const vehicle = db.vehicles.find((v) => v.reg === s.vehicleReg);
     const cp = db.chargepoints.find((c) => c.id === s.chargerId);
-    const inputs: SimInputs = {
+    return {
       connectorKw:
         cp?.connectors.find((cn) => cn.id === s.connectorId)?.powerKw ??
         cp?.connectors[0]?.powerKw ??
@@ -251,6 +276,42 @@ export function tickSimulation(nowMs: number = Date.now()): void {
       targetSoc: vehicle?.socCapPct ?? 100,
       plannedKw: plannedPowerKw(s.id, nowMs),
     };
+  };
+
+  for (const s of live) {
+    const soc = simStates.get(s.id)?.soc ?? db.vehicles.find((v) => v.reg === s.vehicleReg)?.soc ?? s.socStart;
+    const want = chargePowerKw(soc, inputsFor(s));
+    wantById.set(s.id, want);
+    const hub = hubOf.get(s.chargerId);
+    if (hub) wantByHub.set(hub, (wantByHub.get(hub) ?? 0) + want);
+  }
+
+  /** Scale factor to bring a hub back under its grid limit, or 1. */
+  const hubScale = (chargerId: string): number => {
+    const hub = hubOf.get(chargerId);
+    if (!hub) return 1;
+    const limit = gridLimits[hub];
+    const want = wantByHub.get(hub) ?? 0;
+    if (!limit || want <= limit) return 1;
+    return limit / want;
+  };
+
+  for (const s of live) {
+    seen.add(s.id);
+    const vehicle = db.vehicles.find((v) => v.reg === s.vehicleReg);
+    const base = inputsFor(s);
+    const scale = hubScale(s.chargerId);
+    const inputs: SimInputs =
+      scale >= 1
+        ? base
+        : {
+            ...base,
+            // chargePowerKw re-applies the SoC taper, so hand it the share
+            // before taper to land on exactly want × scale.
+            plannedKw:
+              ((wantById.get(s.id) ?? 0) * scale) /
+              taperFactor(simStates.get(s.id)?.soc ?? vehicle?.soc ?? s.socStart),
+          };
 
     const prior = simStates.get(s.id) ?? {
       // energy-brain reports the energy still REQUESTED, not delivered, so a

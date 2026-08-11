@@ -91,10 +91,8 @@ export default function DriverDetail() {
                   flexDirection: "column",
                   boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
                 }}
-                bodyStyle={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
+                styles={{
+                  body: { flex: 1, display: "flex", flexDirection: "column" },
                 }}
               >
                 <Row style={{ paddingBottom: "12px" }}>

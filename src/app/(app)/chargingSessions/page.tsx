@@ -20,16 +20,18 @@ export default function ChargingSessions() {
             key: "1",
             label: "Charging Sessions",
             children: (
-              <>
-                <div style={{ marginTop: "30px" }}>
-                  <LiveVehicleChargingStatus />
-                </div>
-                <Row gutter={[14, 14]} style={{ marginTop: "20px", marginBottom: "20px" }}>
-                  <Col span={24} style={{ marginBottom: "20px" }}>
-                    <SessionsList />
-                  </Col>
-                </Row>
-              </>
+              // Filters live at the top of the tab and drive the live block as
+              // well as the table (demo spec item 6), so SessionsList renders
+              // the live section between its filter bar and its table.
+              <Row gutter={[14, 14]} style={{ marginTop: "20px", marginBottom: "20px" }}>
+                <Col span={24} style={{ marginBottom: "20px" }}>
+                  <SessionsList
+                    renderLive={(f) => (
+                      <LiveVehicleChargingStatus hub={f.hub} plates={f.plates} />
+                    )}
+                  />
+                </Col>
+              </Row>
             ),
           },
           {

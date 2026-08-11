@@ -58,7 +58,7 @@ function AnalyticsChartCard({
 }) {
   return (
     <Card
-      bodyStyle={{ padding: "14px", paddingTop: "0px" }}
+      styles={{ body: { padding: "14px", paddingTop: "0px" } }}
       title={
         <div className="flex items-center justify-between">
           <div className="flex">
@@ -179,7 +179,7 @@ export default function DriverAnalytics({ driver }: { driver: Driver }) {
 
   return (
     <>
-      <Card bodyStyle={{ padding: "10px" }} style={{ width: "380px" }}>
+      <Card styles={{ body: { padding: "10px" } }} style={{ width: "380px" }}>
         <div style={{ display: "flex" }}>
           <RangePicker
             allowClear={false}

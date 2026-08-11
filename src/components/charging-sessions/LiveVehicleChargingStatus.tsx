@@ -43,16 +43,29 @@ function VehicleStatusProgress({ percentage }: { percentage: number }) {
   );
 }
 
-export default function LiveVehicleChargingStatus() {
+export default function LiveVehicleChargingStatus({
+  hub = null,
+  plates = [],
+}: {
+  /** null = all hubs (demo spec item 6). */
+  hub?: string | null;
+  /** Empty = every vehicle. */
+  plates?: string[];
+} = {}) {
   const db = useDb();
   const sim = useSimStates();
   const router = useRouter();
   const [limit] = useState(10);
   const [pageNum, setPageNum] = useState(1);
 
-  const ongoing = db.sessions.filter((s) => s.endTime === null);
+  const ongoing = db.sessions.filter((s) => {
+    if (s.endTime !== null) return false;
+    if (plates.length && !plates.includes(s.vehicleReg)) return false;
+    if (hub && db.chargepoints.find((c) => c.id === s.chargerId)?.hub !== hub) return false;
+    return true;
+  });
 
-  // Hide the entire section when there are no live charging sessions
+  // Hide the entire section when nothing matching the filters is charging
   if (!ongoing.length) return null;
 
   const rows = ongoing.slice((pageNum - 1) * limit, pageNum * limit);

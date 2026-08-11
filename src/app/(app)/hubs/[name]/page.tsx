@@ -1,45 +1,27 @@
 "use client";
 
-import {
-  Button,
-  Card,
-  Empty,
-  InputNumber,
-  Radio,
-  Table,
-  Tag,
-  Typography,
-} from "antd";
+import { SettingOutlined } from "@ant-design/icons";
+import { Button, Card, Empty, Table, Tag, Typography } from "antd";
 import type { TableProps } from "antd";
 import dayjs from "dayjs";
 import ReactECharts from "echarts-for-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { useDb, useSimStates } from "@/data/store";
+import { useMemo, useState } from "react";
+import ChargingPlanCard from "@/components/hubs/ChargingPlanCard";
+import ForecastPowerCard from "@/components/hubs/ForecastPowerCard";
+import HubRateSettings from "@/components/hubs/HubRateSettings";
+import { useDb, useEnergyHubLimits, useSimStates } from "@/data/store";
 import type { ChargingSession, Vehicle } from "@/data/types";
-import { message } from "@/lib/antdStatic";
 
 const { Title, Text } = Typography;
 const GREEN = "#16a34a";
-const ORANGE = "#f97316";
 const GRAY = "#d1d5db";
 const RED = "#ef4444";
 
-// Hub page (demo spec item 3): chargers + vehicles inside one hub, occupancy,
-// site power, per-vehicle charging inputs (ready time / required SoC — the
-// hook for energy-brain's algo choice), and preliminary analytics charts
-// (exact chart specs arrive later per the doc).
-
-interface PlanRow {
-  readyTime: string; // "HH:mm"
-  targetSoc: number;
-}
-type HubPlan = { mode: "fifo" | "ready-times"; rows: Record<string, PlanRow> };
-
-function planKey(hub: string) {
-  return `ergos-test:hub-plan:${hub}`;
-}
+// Hub page (demo spec items 3 + 5): chargers + vehicles inside one hub,
+// occupancy and site power on the first row, the charging plan with its energy
+// price settings, and analytics (exact chart specs arrive later per the doc).
 
 function StatCard({ children, title }: { children: React.ReactNode; title: string }) {
   return (
@@ -60,6 +42,7 @@ export default function HubPage() {
   const hubName = decodeURIComponent(params.name);
   const db = useDb();
   const sim = useSimStates();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const chargers = useMemo(
     () => db.chargepoints.filter((cp) => cp.hub === hubName),
@@ -75,6 +58,13 @@ export default function HubPage() {
     [db.sessions, chargerIds],
   );
   const ongoing = hubSessions.filter((s) => s.endTime === null);
+
+  // Ongoing sessions at this hub, labelled for the optimizer forecast chart.
+  const sessionLabels = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of hubSessions) if (!s.endTime) map.set(s.id, s.vehicleReg);
+    return map;
+  }, [hubSessions]);
 
   // ---- occupancy ----------------------------------------------------------
   const occupancy = useMemo(() => {
@@ -100,6 +90,9 @@ export default function HubPage() {
   }, [chargers, ongoing]);
 
   // ---- site power (sum of connector kW over active sessions, 15-min grid) --
+  const gridLimits = useEnergyHubLimits();
+  const gridLimitKw = gridLimits[hubName];
+
   const powerSeries = useMemo(() => {
     const points: [number, number][] = [];
     const start = dayjs().subtract(24, "hour").startOf("hour");
@@ -121,10 +114,13 @@ export default function HubPage() {
         if (sStart > ts || ts >= sEnd) continue;
         kw += !s.endTime && ts >= liveFrom ? (sim.get(s.id)?.powerKw ?? 0) : powerOf(s);
       }
+      // Connector ratings oversubscribe the site: historical buckets are an
+      // estimate, and the estimate can never have exceeded the grid connection.
+      if (gridLimitKw) kw = Math.min(kw, gridLimitKw);
       points.push([ts, Math.round(kw * 100) / 100]);
     }
     return points;
-  }, [hubSessions, chargers, sim]);
+  }, [hubSessions, chargers, sim, gridLimitKw]);
 
   const currentKw = powerSeries.length ? powerSeries[powerSeries.length - 1][1] : 0;
 
@@ -140,36 +136,6 @@ export default function HubPage() {
     }
     return days;
   }, [hubSessions]);
-
-  // ---- charging inputs (spec: ready time / FIFO + required SoC) ----------
-  const [mode, setMode] = useState<HubPlan["mode"]>("ready-times");
-  const [rows, setRows] = useState<Record<string, PlanRow>>({});
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(planKey(hubName));
-      if (raw) {
-        const plan = JSON.parse(raw) as HubPlan;
-        setMode(plan.mode);
-        setRows(plan.rows);
-      }
-    } catch {
-      // ignore corrupt plan
-    }
-  }, [hubName]);
-
-  const rowFor = (v: Vehicle): PlanRow =>
-    rows[v.reg] ?? { readyTime: "09:00", targetSoc: v.socCapPct };
-
-  const savePlan = () => {
-    const plan: HubPlan = { mode, rows };
-    window.localStorage.setItem(planKey(hubName), JSON.stringify(plan));
-    message.success(
-      mode === "fifo"
-        ? "Saved — FIFO: vehicles charge in plug-in order."
-        : "Saved — ready times will drive the energy-brain schedule.",
-    );
-  };
 
   if (!chargers.length && !vehicles.length) {
     return (
@@ -207,7 +173,12 @@ export default function HubPage() {
       type: "time",
       axisLabel: { fontSize: 10, formatter: (v: number) => dayjs(v).format("h a") },
     },
-    yAxis: { type: "value", axisLabel: { fontSize: 10 } },
+    yAxis: {
+      type: "value",
+      axisLabel: { fontSize: 10 },
+      // Keep the grid limit in frame so the headroom is readable.
+      max: gridLimitKw ? Math.ceil(gridLimitKw * 1.1) : undefined,
+    },
     series: [
       {
         type: "line",
@@ -216,19 +187,35 @@ export default function HubPage() {
         lineStyle: { color: "#3b82f6", width: 1.5 },
         areaStyle: { color: "rgba(59,130,246,0.15)" },
         data: powerSeries,
+        markLine: gridLimitKw
+          ? {
+              silent: true,
+              symbol: "none",
+              lineStyle: { color: "#ef4444", type: "dashed", width: 1 },
+              label: { formatter: `Grid limit ${Math.round(gridLimitKw)} kW`, fontSize: 10 },
+              data: [{ yAxis: gridLimitKw }],
+            }
+          : undefined,
       },
     ],
   };
 
   const energyOption = {
-    grid: { top: 10, right: 10, bottom: 22, left: 35 },
+    grid: { top: 10, right: 10, bottom: 22, left: 46 },
     tooltip: { valueFormatter: (v: number) => `${Number(v).toFixed(2)} kWh` },
     xAxis: {
       type: "category",
       data: dailyEnergy.map((d) => d.day),
-      axisLabel: { fontSize: 10 },
+      axisLabel: { fontSize: 11 },
     },
-    yAxis: { type: "value", axisLabel: { fontSize: 10 } },
+    yAxis: {
+      type: "value",
+      name: "Energy (kWh)",
+      nameLocation: "middle",
+      nameGap: 34,
+      nameTextStyle: { fontSize: 11, color: "#888" },
+      axisLabel: { fontSize: 11 },
+    },
     series: [
       {
         type: "bar",
@@ -286,6 +273,38 @@ export default function HubPage() {
     },
   ];
 
+  const vehicleColumns: TableProps<Vehicle>["columns"] = [
+    {
+      title: "Vehicle",
+      key: "reg",
+      render: (_, v) => (
+        <Link href={`/vehicles/${v.id}`} style={{ color: "#f97417" }}>
+          {v.reg}
+        </Link>
+      ),
+    },
+    {
+      title: "Model",
+      key: "model",
+      render: (_, v) => `${v.make} ${v.model}`.trim(),
+    },
+    {
+      title: "Status",
+      key: "status",
+      render: (_, v) => vehicleStatusTag(v),
+    },
+    {
+      title: "SoC",
+      key: "soc",
+      align: "right",
+      render: (_, v) => (
+        <span style={{ color: v.soc < 25 ? RED : GREEN, fontWeight: 600 }}>
+          {Math.round(v.soc)}%
+        </span>
+      ),
+    },
+  ];
+
   return (
     <div className="min-h-screen p-4">
       <div style={{ marginBottom: 4 }}>
@@ -302,7 +321,8 @@ export default function HubPage() {
         </Tag>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      {/* First row: occupancy + site power only. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <StatCard title="Occupancy">
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <ReactECharts option={occupancyOption} style={{ height: 130, width: 130 }} />
@@ -324,37 +344,40 @@ export default function HubPage() {
         </StatCard>
 
         <StatCard title="Site power">
-          <div style={{ fontSize: 22, fontWeight: 700, color: "#2563eb", marginBottom: 4 }}>
-            {currentKw.toFixed(1)} kW
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 22, fontWeight: 700, color: "#2563eb" }}>
+              {currentKw.toFixed(1)} kW
+            </span>
+            {gridLimitKw && (
+              <span style={{ fontSize: 12, color: "#888" }}>
+                of {Math.round(gridLimitKw)} kW grid limit
+              </span>
+            )}
           </div>
-          <ReactECharts option={powerOption} style={{ height: 110 }} />
+          <ReactECharts option={powerOption} style={{ height: 130 }} />
         </StatCard>
+      </div>
 
+      {/* Chargers and vehicles side by side. */}
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <StatCard title="Chargers">
+          <Table
+            columns={chargerColumns}
+            dataSource={chargers}
+            rowKey="id"
+            size="small"
+            pagination={false}
+          />
+        </StatCard>
         <StatCard title="Vehicles">
-          <div style={{ maxHeight: 170, overflowY: "auto" }}>
-            {vehicles.length === 0 && <Text type="secondary">No vehicles in this hub.</Text>}
-            {vehicles.map((v) => (
-              <div
-                key={v.id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "4px 0",
-                  borderBottom: "1px solid #f5f5f5",
-                  fontSize: 13,
-                }}
-              >
-                <Link href={`/vehicles/${v.id}`} style={{ color: "#374151", fontWeight: 600 }}>
-                  {v.reg}
-                </Link>
-                {vehicleStatusTag(v)}
-                <span style={{ color: v.soc < 25 ? RED : GREEN, fontWeight: 600 }}>
-                  {Math.round(v.soc)}%
-                </span>
-              </div>
-            ))}
-          </div>
+          <Table
+            columns={vehicleColumns}
+            dataSource={vehicles}
+            rowKey="id"
+            size="small"
+            pagination={false}
+            locale={{ emptyText: "No vehicles in this hub." }}
+          />
         </StatCard>
       </div>
 
@@ -362,109 +385,15 @@ export default function HubPage() {
         style={{ borderRadius: 12, border: "1px solid #f0f0f0", marginTop: 16 }}
         styles={{ body: { padding: 16 } }}
       >
-        <Text strong>Chargers</Text>
-        <Table
-          columns={chargerColumns}
-          dataSource={chargers}
-          rowKey="id"
-          size="small"
-          pagination={false}
-          style={{ marginTop: 8 }}
+        <ChargingPlanCard
+          hub={hubName}
+          vehicles={vehicles}
+          extra={
+            <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>
+              Energy prices
+            </Button>
+          }
         />
-      </Card>
-
-      {/* Charging inputs — per the spec note: ready-time per vehicle or FIFO,
-          plus required SoC; ready-times feed the energy-brain algo. */}
-      <Card
-        style={{ borderRadius: 12, border: "1px solid #f0f0f0", marginTop: 16 }}
-        styles={{ body: { padding: 16 } }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <Text strong>Charging plan</Text>
-            <div style={{ fontSize: 12, color: "#888" }}>
-              {mode === "fifo"
-                ? "First-in-first-out: vehicles charge in the order they plug in."
-                : "Each vehicle charges to its required SoC before its ready time (energy-brain schedule)."}
-            </div>
-          </div>
-          <Radio.Group
-            value={mode}
-            onChange={(e) => setMode(e.target.value)}
-            optionType="button"
-            buttonStyle="solid"
-            options={[
-              { label: "Ready times", value: "ready-times" },
-              { label: "FIFO", value: "fifo" },
-            ]}
-          />
-        </div>
-
-        {mode === "ready-times" && (
-          <Table
-            style={{ marginTop: 12 }}
-            size="small"
-            pagination={false}
-            rowKey="id"
-            dataSource={vehicles}
-            columns={[
-              { title: "Vehicle", dataIndex: "reg", key: "reg" },
-              {
-                title: "SoC now",
-                key: "soc",
-                render: (_, v: Vehicle) => `${Math.round(v.soc)}%`,
-              },
-              {
-                title: "Ready by",
-                key: "ready",
-                render: (_, v: Vehicle) => (
-                  <input
-                    type="time"
-                    value={rowFor(v).readyTime}
-                    onChange={(e) =>
-                      setRows((r) => ({
-                        ...r,
-                        [v.reg]: { ...rowFor(v), readyTime: e.target.value },
-                      }))
-                    }
-                    style={{
-                      border: "1px solid #d9d9d9",
-                      borderRadius: 6,
-                      padding: "2px 6px",
-                      fontSize: 13,
-                    }}
-                  />
-                ),
-              },
-              {
-                title: "Required SoC",
-                key: "target",
-                render: (_, v: Vehicle) => (
-                  <InputNumber
-                    min={20}
-                    max={100}
-                    size="small"
-                    value={rowFor(v).targetSoc}
-                    formatter={(val) => `${val}%`}
-                    parser={(val) => Number((val ?? "").replace("%", ""))}
-                    onChange={(val) =>
-                      setRows((r) => ({
-                        ...r,
-                        [v.reg]: { ...rowFor(v), targetSoc: Number(val ?? 100) },
-                      }))
-                    }
-                  />
-                ),
-              },
-            ]}
-          />
-        )}
-
-        <div style={{ marginTop: 12, textAlign: "right" }}>
-          <Button type="primary" style={{ background: ORANGE }} onClick={savePlan}>
-            Save plan
-          </Button>
-        </div>
       </Card>
 
       {/* Preliminary analytics — exact specs land later per the doc. */}
@@ -472,10 +401,12 @@ export default function HubPage() {
         <StatCard title="Daily energy output (last 10 days)">
           <ReactECharts option={energyOption} style={{ height: 200 }} />
         </StatCard>
-        <StatCard title="Power output (last 24 h)">
-          <ReactECharts option={powerOption} style={{ height: 200 }} />
+        <StatCard title="Expected power consumption (next 24 h)">
+          <ForecastPowerCard sessionLabels={sessionLabels} />
         </StatCard>
       </div>
+
+      <HubRateSettings hub={hubName} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

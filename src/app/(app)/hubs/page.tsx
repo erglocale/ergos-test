@@ -3,6 +3,7 @@
 import { Card, Empty, Progress, Tag, Typography } from "antd";
 import Link from "next/link";
 import { useMemo } from "react";
+import ChargerScheduleCalendar from "@/components/chargers/ChargerScheduleCalendar";
 import { useDb } from "@/data/store";
 
 const { Title, Text } = Typography;
@@ -114,6 +115,22 @@ export default function HubsIndex() {
           );
         })}
       </div>
+
+      {/* Chargepoints live here now rather than in their own nav item: the
+          schedule already groups by hub, so it reads as the hubs' detail. */}
+      <Card
+        style={{ borderRadius: 12, border: "1px solid #f0f0f0", marginTop: 16 }}
+        styles={{ body: { padding: 16 } }}
+      >
+        <Text strong style={{ display: "block", marginBottom: 4 }}>
+          Charger schedule
+        </Text>
+        <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>
+          Sessions per charger across every hub — past on the left of the line, energy brain&apos;s plan on
+          the right.
+        </div>
+        <ChargerScheduleCalendar chargers={db.chargepoints} />
+      </Card>
     </div>
   );
 }

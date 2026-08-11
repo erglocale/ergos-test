@@ -133,7 +133,7 @@ export default function DriversList() {
         overflow: "hidden",
         border: "1px solid #f0f0f0",
       }}
-      bodyStyle={{ padding: 0 }}
+      styles={{ body: { padding: 0 } }}
       hoverable
     >
       <Table

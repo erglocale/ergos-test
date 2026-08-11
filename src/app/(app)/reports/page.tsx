@@ -2,7 +2,8 @@
 
 import { Tabs, Typography } from "antd";
 import ChargingSessionAnalysis from "@/components/reports/ChargingSessionAnalysis";
-import RsPerKmAnalysis from "@/components/reports/RsPerKmAnalysis";
+import CostPerDistanceAnalysis from "@/components/reports/CostPerDistanceAnalysis";
+import HubEnergyReport from "@/components/reports/HubEnergyReport";
 import VehicleUtilizationAnalysis from "@/components/reports/VehicleUtilizationAnalysis";
 
 const { Title } = Typography;
@@ -19,9 +20,14 @@ const TAB_ITEMS = [
     children: <VehicleUtilizationAnalysis />,
   },
   {
-    key: "rsPerKm",
-    label: "Rs / km Analysis",
-    children: <RsPerKmAnalysis />,
+    key: "costPerDistance",
+    label: "Cost per Distance",
+    children: <CostPerDistanceAnalysis />,
+  },
+  {
+    key: "hubEnergy",
+    label: "Charging Hub Energy Report",
+    children: <HubEnergyReport />,
   },
 ];
 
