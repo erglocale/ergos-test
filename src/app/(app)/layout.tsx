@@ -28,18 +28,19 @@ const { Text } = Typography;
 
 const ICON_COLOR = { color: "#636160" };
 
+// Order set by the demo walkthrough: the daily operating screens first, then
+// analysis, then the reference sections. Chargepoints is folded into Hubs
+// (demo spec item 5) — /chargingStations still resolves for deep links.
 const MENU_ITEMS = [
   { label: "Dashboard", icon: <AiFillHome style={ICON_COLOR} />, href: "/home" },
   { label: "Alerts", icon: <InfoCircleFilled style={ICON_COLOR} />, href: "/alerts" },
-  { label: "Charging Sessions", icon: <ImPower style={ICON_COLOR} />, href: "/chargingSessions" },
-  { label: "Trips", icon: <BiTrip style={ICON_COLOR} />, href: "/trips" },
-  // Chargepoints folded into Hubs (demo spec item 5) — the charger schedule now
-  // lives under the hub cards. /chargingStations still resolves for deep links.
   { label: "Hubs", icon: <FaWarehouse style={ICON_COLOR} />, href: "/hubs" },
-  { label: "Drivers", icon: <FaAddressCard style={ICON_COLOR} />, href: "/drivers" },
-  { label: "Maintenance", icon: <FaWrench style={ICON_COLOR} />, href: "/maintenance" },
-  { label: "Reports", icon: <TbReportAnalytics style={ICON_COLOR} />, href: "/reports" },
+  { label: "Charging Sessions", icon: <ImPower style={ICON_COLOR} />, href: "/chargingSessions" },
   { label: "Suggestions", icon: <BulbOutlined style={ICON_COLOR} />, href: "/suggestions" },
+  { label: "Reports", icon: <TbReportAnalytics style={ICON_COLOR} />, href: "/reports" },
+  { label: "Maintenance", icon: <FaWrench style={ICON_COLOR} />, href: "/maintenance" },
+  { label: "Trips", icon: <BiTrip style={ICON_COLOR} />, href: "/trips" },
+  { label: "Drivers", icon: <FaAddressCard style={ICON_COLOR} />, href: "/drivers" },
   { label: "Settings", icon: <SettingOutlined style={ICON_COLOR} />, href: "/settings" },
 ];
 
