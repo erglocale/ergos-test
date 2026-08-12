@@ -96,24 +96,39 @@ export default function HubPage() {
 
   const powerSeries = useMemo(() => {
     const points: [number, number][] = [];
-    const start = dayjs().subtract(24, "hour").startOf("hour");
     const powerOf = (s: ChargingSession) => {
       const cp = chargers.find((c) => c.id === s.chargerId);
       return cp?.connectors.find((cn) => cn.id === s.connectorId)?.powerKw ?? 3;
     };
+    // Last 12 hours on a 15-minute grid. The window ends at the actual current
+    // moment, not at the top of the hour: a session that started a few minutes
+    // ago (energy-brain's live ones often have) would otherwise fall past the
+    // last bucket and draw nothing.
+    const STEP_MS = 15 * 60_000;
+    const now = dayjs();
+    const nowMs = now.valueOf();
+    const startMs = now.subtract(12, "hour").startOf("hour").valueOf();
+    const stamps: number[] = [];
+    for (let ts = startMs; ts < nowMs; ts += STEP_MS) stamps.push(ts);
+    stamps.push(nowMs);
     // The last bucket is "now", where the simulator knows the actual draw — an
     // optimizer may be holding a vehicle at 0 kW rather than letting it pull
     // the connector's full rating. Earlier buckets keep the rating estimate.
-    const nowMs = start.add(24, "hour").valueOf();
-    const liveFrom = nowMs - 15 * 60_000;
-    for (let t = start; t.valueOf() < nowMs; t = t.add(15, "minute")) {
-      const ts = t.valueOf();
+    const liveFrom = nowMs - STEP_MS;
+    for (const ts of stamps) {
       let kw = 0;
       for (const s of hubSessions) {
         const sStart = dayjs(s.startTime).valueOf();
-        const sEnd = s.endTime ? dayjs(s.endTime).valueOf() : nowMs;
+        // Ongoing sessions have no end — they must still count in the "now"
+        // bucket, so they can't be treated as ending at nowMs.
+        const sEnd = s.endTime ? dayjs(s.endTime).valueOf() : Infinity;
         if (sStart > ts || ts >= sEnd) continue;
-        kw += !s.endTime && ts >= liveFrom ? (sim.get(s.id)?.powerKw ?? 0) : powerOf(s);
+        kw +=
+          !s.endTime && ts >= liveFrom
+            ? // Before the first simulation tick there is no live reading yet;
+              // fall back to the connector rating rather than showing nothing.
+              (sim.get(s.id)?.powerKw ?? powerOf(s))
+            : powerOf(s);
       }
       // Connector ratings oversubscribe the site: historical buckets are an
       // estimate, and the estimate can never have exceeded the grid connection.
@@ -177,8 +192,9 @@ export default function HubPage() {
     yAxis: {
       type: "value",
       axisLabel: { fontSize: 10 },
-      // Keep the grid limit in frame so the headroom is readable.
-      max: gridLimitKw ? Math.ceil(gridLimitKw * 1.1) : undefined,
+      // The grid limit is the ceiling of the site, so it is also the top of the
+      // axis — nothing can be drawn above it.
+      max: gridLimitKw ?? undefined,
     },
     series: [
       {
@@ -193,7 +209,12 @@ export default function HubPage() {
               silent: true,
               symbol: "none",
               lineStyle: { color: "#ef4444", type: "dashed", width: 1 },
-              label: { formatter: `Grid limit ${Math.round(gridLimitKw)} kW`, fontSize: 10 },
+              // Sits on the top axis line now, so the label goes inside.
+              label: {
+                formatter: `Grid limit ${Math.round(gridLimitKw)} kW`,
+                fontSize: 10,
+                position: "insideEndBottom",
+              },
               data: [{ yAxis: gridLimitKw }],
             }
           : undefined,
@@ -347,7 +368,7 @@ export default function HubPage() {
           </div>
         </StatCard>
 
-        <StatCard title="Site power">
+        <StatCard title="Site power (last 12 h)">
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 22, fontWeight: 700, color: "#2563eb" }}>
               {currentKw.toFixed(1)} kW

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LuSearch, LuUser } from "react-icons/lu";
 import DashboardMap from "@/components/maps/DashboardMap";
-import { useDb } from "@/data/store";
+import { isEnergyBrainVehicle, useDb } from "@/data/store";
 
 const { Text, Title } = Typography;
 
@@ -60,6 +60,8 @@ interface VehicleVM {
   hub: string;
   lat: number;
   lng: number;
+  /** Live rows from energy-brain — pinned to the top of the default listing. */
+  isEnergyBrain: boolean;
 }
 
 // Deterministic per-vehicle "minutes ago" for the telemetry timestamp the
@@ -264,6 +266,7 @@ export default function FleetAndChargerHostLayout() {
           hub: v.hub,
           lat: v.lat,
           lng: v.lng,
+          isEnergyBrain: isEnergyBrainVehicle(v.id),
         };
       }),
     [db.vehicles, db.drivers],
@@ -403,6 +406,9 @@ export default function FleetAndChargerHostLayout() {
           : 0;
         return tB - tA;
       }
+      // Default ordering: the live energy-brain fleet first, then by plate.
+      // The explicit SoC / updated sorts are left alone so they stay honest.
+      if (a.isEnergyBrain !== b.isEnergyBrain) return a.isEnergyBrain ? -1 : 1;
       return (a?.licensePlate || "").localeCompare(b?.licensePlate || "");
     });
     return list;
