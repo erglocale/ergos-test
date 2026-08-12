@@ -31,6 +31,11 @@ import { setVehicleSocCap, updateRow, useDb } from "@/data/store";
 const { Title, Text } = Typography;
 const ORANGE = "#F26E21";
 
+/** "as 01 sc-7409" and "AS01SC7409" are the same vehicle. */
+function normalizePlate(plate: string | null | undefined): string {
+  return (plate ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 // ---- Charging tab: live "plug in now" nudges (the realtime suggestion) ----
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -328,15 +333,30 @@ export default function Suggestions() {
   const capRows = live ? liveCaps : demoCapRows;
 
   const applySuggestion = (row: CapRow) => {
-    if (row.socLimit?.suggested_cap == null) return;
+    const cap = row.socLimit?.suggested_cap;
+    if (cap == null) return;
+    // Fixture suggestions carry their own row; live rows (suggestionId
+    // "live-<evId>") have none, so this is a no-op for them.
     updateRow("suggestions", row.suggestionId, { status: "Applied" });
-    // Matches on the plate; the cap goes through setVehicleSocCap so it also
-    // lands on energy-brain's demo vans, whose rows aren't in the fixture db.
-    const vehicle = db.vehicles.find((v) => v.reg === row.label);
-    if (vehicle) setVehicleSocCap(vehicle.id, row.socLimit.suggested_cap);
-    messageApi.success(
-      `Charge limit set to ${row.socLimit.suggested_cap}% for ${row.label || `EV ${row.evId}`}`,
-    );
+
+    // Live rows label the vehicle by its real licence plate, which is also what
+    // the sandbox fleet uses — so a live suggestion lands on the matching demo
+    // vehicle. Plates are compared loosely (case, spaces, hyphens) because the
+    // analytics feed and the fixtures don't always format them the same way.
+    const plate = normalizePlate(row.label);
+    const vehicle = plate
+      ? db.vehicles.find((v) => normalizePlate(v.reg) === plate)
+      : undefined;
+    const who = row.label || `EV ${row.evId}`;
+    if (!vehicle) {
+      messageApi.warning(`No vehicle matching ${who} in the sandbox fleet — nothing to update.`);
+      setSelected(null);
+      return;
+    }
+    // setVehicleSocCap picks the right layer, so this also lands on
+    // energy-brain's vans, whose rows aren't in the fixture db.
+    setVehicleSocCap(vehicle.id, cap);
+    messageApi.success(`Charge limit set to ${cap}% for ${vehicle.reg}`);
     setSelected(null);
   };
 
