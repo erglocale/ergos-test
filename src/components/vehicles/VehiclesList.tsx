@@ -9,6 +9,7 @@ import getDocumentSummaryByEntity from "@/components/drivers/documents";
 import { removeRow, useDb } from "@/data/store";
 import type { Vehicle } from "@/data/types";
 import EditVehicleModal from "./EditVehicleModal";
+import VehiclePhoto from "./vehiclePhoto";
 import { message } from "@/lib/antdStatic";
 
 // Color-coded SoC battery bar — 10 segments from red to green
@@ -133,7 +134,9 @@ export default function VehiclesList({
         const isRunning = vehicle.status === "Driving";
         const name = driverName(vehicle.driverId);
         return (
-          <div>
+          <div className="flex items-start gap-3">
+            <VehiclePhoto vehicle={vehicle} width={64} height={44} radius={6} />
+            <div className="min-w-0">
             <span
               style={{
                 color: "#f97417",
@@ -188,6 +191,7 @@ export default function VehiclesList({
                 )}
               </>
             )}
+            </div>
           </div>
         );
       },

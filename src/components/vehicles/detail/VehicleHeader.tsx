@@ -1,8 +1,8 @@
 "use client";
 
 import { Card } from "antd";
-import { IoCarSport } from "react-icons/io5";
 import type { Driver, Vehicle } from "@/data/types";
+import VehiclePhoto from "../vehiclePhoto";
 import { SURFACE_CARD_STYLE } from "./ui";
 import { deriveVehicleExtras, fmtDate, hasTelemetry } from "./vehicleDetailUtils";
 
@@ -117,13 +117,8 @@ export default function VehicleHeader({
       styles={{ body: { padding: 20 } }}
     >
       <div className="flex flex-wrap items-center gap-5">
-        {/* Image (sandbox: no vehicle catalogue — icon placeholder) */}
-        <div
-          className="flex flex-shrink-0 items-center justify-center overflow-hidden rounded-lg"
-          style={{ width: 100, height: 80, background: "#f5f5f3" }}
-        >
-          <IoCarSport style={{ fontSize: 40, color: "#9ca3af" }} />
-        </div>
+        {/* Photo for the demo fleet; icon placeholder for anything else. */}
+        <VehiclePhoto vehicle={vehicle} width={150} height={96} />
 
         {/* Identity */}
         <div className="min-w-0 flex-1">

@@ -45,7 +45,7 @@ function KpiTile({
             )}
           </div>
         }
-        valueStyle={{ fontWeight: 700, fontSize: 19, color: "#1a1f2e" }}
+        styles={{ content: { fontWeight: 700, fontSize: 19, color: "#1a1f2e" } }}
         suffix={suffix ? <span className="text-xs font-normal text-gray-500">{suffix}</span> : null}
         value={value}
       />

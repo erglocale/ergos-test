@@ -13,6 +13,7 @@ import { Button, InputNumber, Popover, Select, Table, Tag, TimePicker, Tooltip, 
 import type { TableProps } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
+import VehiclePhoto from "@/components/vehicles/vehiclePhoto";
 import { isEnergyBrainVehicle, updateRow, useDb } from "@/data/store";
 import type { Suggestion, Vehicle } from "@/data/types";
 import { message } from "@/lib/antdStatic";
@@ -225,8 +226,16 @@ export default function ChargingPlanCard({
       title: "Vehicle",
       dataIndex: "reg",
       key: "reg",
-      width: 130,
-      render: (reg: string) => <Text strong>{reg}</Text>,
+      width: 190,
+      render: (reg: string, v) => (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <VehiclePhoto vehicle={v} width={52} height={36} radius={6} />
+          <div style={{ minWidth: 0 }}>
+            <Text strong>{reg}</Text>
+            <div style={{ fontSize: 11, color: "#94a3b8" }}>{`${v.make} ${v.model}`.trim()}</div>
+          </div>
+        </div>
+      ),
     },
     {
       title: "Ready by",

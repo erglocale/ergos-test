@@ -3,6 +3,7 @@
 import { Pagination, Typography } from "antd";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import VehiclePhoto from "@/components/vehicles/vehiclePhoto";
 import { etaMinutes } from "@/data/liveSim";
 import { useDb, useSimStates } from "@/data/store";
 
@@ -144,10 +145,15 @@ export default function LiveVehicleChargingStatus({
                   style={{ ...cellBase, width: "20%", cursor: "pointer" }}
                   onClick={() => vehicle && router.push(`/vehicles/${vehicle.id}`)}
                 >
-                  <div style={{ fontWeight: 600 }}>
-                    {vehicle ? `${vehicle.make} ${vehicle.model}` : "—"}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <VehiclePhoto vehicle={vehicle} width={64} height={44} radius={6} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600 }}>
+                        {vehicle ? `${vehicle.make} ${vehicle.model}` : "—"}
+                      </div>
+                      <div style={{ fontSize: "14px", color: "#888" }}>{session.vehicleReg}</div>
+                    </div>
                   </div>
-                  <div style={{ fontSize: "14px", color: "#888" }}>{session.vehicleReg}</div>
                 </td>
                 <td
                   style={{ ...cellBase, width: "30%", cursor: "pointer" }}

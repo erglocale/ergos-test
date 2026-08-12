@@ -177,7 +177,7 @@ export default function DriverDetail() {
                           </Tooltip>
                         </div>
                       }
-                      valueStyle={{ fontWeight: 600, fontSize: "35px" }}
+                      styles={{ content: { fontWeight: 600, fontSize: "35px" } }}
                       suffix={<p className="text-2xl font-normal">kms</p>}
                       value={usage.kms}
                       precision={2}
@@ -201,7 +201,7 @@ export default function DriverDetail() {
                           </Tooltip>
                         </div>
                       }
-                      valueStyle={{ fontWeight: 600, fontSize: "35px" }}
+                      styles={{ content: { fontWeight: 600, fontSize: "35px" } }}
                       value={usage.cycles}
                     />
                   </Card>
@@ -224,7 +224,7 @@ export default function DriverDetail() {
                           </Tooltip>
                         </div>
                       }
-                      valueStyle={{ fontWeight: 600, fontSize: "35px" }}
+                      styles={{ content: { fontWeight: 600, fontSize: "35px" } }}
                       value={usage.energyUsed}
                       suffix={<p className="text-2xl font-normal">kWh</p>}
                       precision={2}
@@ -249,7 +249,7 @@ export default function DriverDetail() {
                           </Tooltip>
                         </div>
                       }
-                      valueStyle={{ fontWeight: 600, fontSize: "35px" }}
+                      styles={{ content: { fontWeight: 600, fontSize: "35px" } }}
                       value={usage.hours}
                       precision={0}
                       suffix={<p className="text-2xl font-normal">hrs</p>}
@@ -274,7 +274,7 @@ export default function DriverDetail() {
                           </Tooltip>
                         </div>
                       }
-                      valueStyle={{ fontWeight: 600, fontSize: "35px" }}
+                      styles={{ content: { fontWeight: 600, fontSize: "35px" } }}
                       value={usage.energyCharged.toFixed(2)}
                       suffix={<p className="text-2xl font-normal">kWh</p>}
                     />

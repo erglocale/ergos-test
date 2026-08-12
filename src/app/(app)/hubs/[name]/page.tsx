@@ -11,6 +11,7 @@ import { useMemo, useState } from "react";
 import ChargingPlanCard from "@/components/hubs/ChargingPlanCard";
 import ForecastPowerCard from "@/components/hubs/ForecastPowerCard";
 import HubRateSettings from "@/components/hubs/HubRateSettings";
+import VehiclePhoto from "@/components/vehicles/vehiclePhoto";
 import { useDb, useEnergyHubLimits, useSimStates } from "@/data/store";
 import type { ChargingSession, Vehicle } from "@/data/types";
 
@@ -278,9 +279,12 @@ export default function HubPage() {
       title: "Vehicle",
       key: "reg",
       render: (_, v) => (
-        <Link href={`/vehicles/${v.id}`} style={{ color: "#f97417" }}>
-          {v.reg}
-        </Link>
+        <div className="flex items-center gap-2.5">
+          <VehiclePhoto vehicle={v} width={52} height={36} radius={6} />
+          <Link href={`/vehicles/${v.id}`} style={{ color: "#f97417" }}>
+            {v.reg}
+          </Link>
+        </div>
       ),
     },
     {
