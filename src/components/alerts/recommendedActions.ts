@@ -126,7 +126,9 @@ export function recommendedAction(alert: Alert, ctx: ActionContext): string {
       return `Plan a top-up at the next stop — battery below ${fmtNum(p.threshold)}%.`;
 
     case "low_aux_battery":
-      return "Check the 12 V auxiliary battery and its charging circuit at the next service.";
+      // The DC-DC converter only tops the 12 V battery up while the vehicle is
+      // running or charging, so the fix is to put it on charge.
+      return "Start and charge the vehicle.";
 
     default:
       return "Review with the fleet supervisor.";

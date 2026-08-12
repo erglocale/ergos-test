@@ -419,6 +419,18 @@ export function makeFixtures(now = dayjs()): Db {
       payload: () => ({ duration_hours: round1(between(2.5, 9)), threshold_hours: 2 }),
     },
     {
+      // 12 V auxiliary battery: the DC-DC converter only tops it up while the
+      // vehicle runs or charges, so these fire on vehicles left standing.
+      alertType: "low_aux_battery",
+      severity: "warning",
+      weight: 8,
+      payload: () => ({
+        lowest_voltage: round1(between(10.4, 11.7)),
+        threshold: 11.8,
+        duration_seconds: int(15, 180) * 60,
+      }),
+    },
+    {
       // 10 kW is roughly 1C on these 8–12 kWh 3W packs, so anything above it is
       // a swap-station style top-up rather than the depot's 3 kW overnight AC.
       alertType: "repeated_fast_charging",
@@ -460,7 +472,22 @@ export function makeFixtures(now = dayjs()): Db {
         ? createdAt.add(int(20, 600), "minute").toISOString()
         : null,
     };
-  }).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  });
+
+  // The first page of the alerts table should show the range of what the fleet
+  // raises, not ten overspeeds in a row: one alert of each type is pulled to
+  // the front by giving it one of the most recent timestamps. The rest keep the
+  // real, overspeed-heavy distribution behind them.
+  alertSpecs.forEach((spec, i) => {
+    const first = alerts.find((a) => a.alertType === spec.alertType);
+    if (!first) return;
+    const createdAt = now.subtract(i + 1, "hour");
+    first.createdAt = createdAt.toISOString();
+    first.resolvedAt = first.resolved
+      ? createdAt.add(int(10, 45), "minute").toISOString()
+      : null;
+  });
+  alerts.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 
   // ---- charger warnings ---------------------------------------------------
   // Derived from the charger fleet's actual state: the offline unit and the

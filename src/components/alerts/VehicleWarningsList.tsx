@@ -365,7 +365,7 @@ export default function VehicleWarnings() {
             showSizeChanger: true,
             pageSizeOptions: ["10", "20", "50", "100"],
             showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} alerts`,
-            position: ["bottomCenter"],
+            placement: ["bottomCenter"],
           }}
           scroll={{ x: "max-content" }}
           bordered={false}

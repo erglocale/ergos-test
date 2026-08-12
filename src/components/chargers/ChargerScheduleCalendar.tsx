@@ -8,26 +8,44 @@ import { useDb, useEnergyHubLimits, useSimStates } from "@/data/store";
 import type { Chargepoint, ChargingSession } from "@/data/types";
 
 // Calendar/Gantt view of each charger's sessions (demo spec item 1, Aug 2026).
-// Layout follows the reference mock: one collapsible group per hub with a
-// site power curve + grid-limit pill, one row per charger, and blocks that
-// combine a kW power line with a SoC progress bar. A vertical line marks now:
-// past = recorded sessions, future = energy-brain's optimizer schedule.
+//
+// The model, which everything here follows:
+//
+//   • The calendar's x axis is TIME, and the "now" rule divides it: a block's
+//     position and width, and the kW line inside it, are all time. Left of the
+//     rule is what happened (blue), right of it is energy brain's plan (orange).
+//   • A block is ONE session. A finished session spans plug-in → unplug; a live
+//     one spans plug-in → the end of the plan, because the optimizer's plan is
+//     the rest of the same charge, not a second booking.
+//   • Inside a block:
+//       header    plate + the SoC story: "20% → 41% → 80% · ETA 10:15 pm" —
+//                 plugged in at, charged to, heading for.
+//       kW line   power drawn (blue) up to now, power the optimizer allocated
+//                 (orange) after it, both scaled to the connector's rating.
+//       bar       the session on the same time axis: dark green from plug-in to
+//                 now (charging that happened), then the plan's own 15-minute
+//                 slots — dark orange where it charges, light orange where it
+//                 pauses. The SoC it arrived with is deliberately NOT drawn:
+//                 the vehicle was not charging then, so any width for it would
+//                 be invented time. That figure lives in the header instead.
+//   • Hub rows carry the same idea at site level: the blue area is the hub's
+//     draw, past and planned, against its grid-limit pill.
 
 const PX_PER_HOUR = 160;
 const HOURS_BACK = 72;
 const HOURS_AHEAD = 24;
 const SAMPLE_MIN = 15;
 
-// Block internals: vehicle label, then the kW curve, then the SoC bar.
-const LABEL_H = 12;
+// Block internals: header line (plate + SoC/ETA), then the kW curve, then the
+// SoC bar. The header carries the numbers so nothing has to float over the bar.
+const LABEL_H = 15;
 const SPARK_H = 26;
-const SOC_H = 10;
-const LANE_HEIGHT = LABEL_H + SPARK_H + SOC_H + 16;
+const BAR_H = 10;
+const LANE_HEIGHT = LABEL_H + SPARK_H + BAR_H + 16;
 const SITE_ROW_H = 56;
 
 const BLUE = "#6366f1";
 const GREEN = "#22c55e";
-const GREEN_PALE = "#bbf7d0";
 const GREEN_DARK = "#14532d";
 const ORANGE = "#f97316";
 const ORANGE_PALE = "#fed7aa";
@@ -92,7 +110,7 @@ function Sparkline({
   );
 }
 
-function Swatch({ color, dashed }: { color: string; dashed?: boolean }) {
+function Swatch({ color }: { color: string }) {
   return (
     <span
       style={{
@@ -101,14 +119,18 @@ function Swatch({ color, dashed }: { color: string; dashed?: boolean }) {
         height: 9,
         borderRadius: 3,
         background: color,
-        border: dashed ? `1px dashed ${ORANGE}` : "none",
         verticalAlign: "middle",
       }}
     />
   );
 }
 
-/** The bars carry two shades each; without this nobody can read the chart. */
+/**
+ * Everything in a row shares the calendar's time axis, and the split is always
+ * the same: left of the "now" rule is what happened, right of it is what energy
+ * brain plans. The legend spells that out because the two halves use different
+ * colour families.
+ */
 function Legend() {
   const item = (children: ReactNode) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{children}</span>
@@ -131,27 +153,30 @@ function Legend() {
           <svg width={16} height={9}>
             <polyline points="0,8 5,3 10,5 16,1" fill="none" stroke={BLUE} strokeWidth={1.6} />
           </svg>
-          power drawn (kW)
+          kW drawn
         </>,
       )}
       {item(
         <>
-          <Swatch color={GREEN_PALE} /> SoC on arrival
+          <svg width={16} height={9}>
+            <polyline points="0,8 5,3 10,5 16,1" fill="none" stroke={ORANGE} strokeWidth={1.6} />
+          </svg>
+          kW planned
         </>,
       )}
       {item(
         <>
-          <Swatch color={GREEN} /> SoC added this session
+          <Swatch color={GREEN} /> charged so far
         </>,
       )}
       {item(
         <>
-          <Swatch color={GREEN_DARK} /> target reached
+          <Swatch color={ORANGE} /> energy brain will charge
         </>,
       )}
       {item(
         <>
-          <Swatch color={ORANGE_PALE} dashed /> <Swatch color={ORANGE} /> planned by energy brain
+          <Swatch color={ORANGE_PALE} /> planned pause
         </>,
       )}
       {item(
@@ -172,20 +197,33 @@ function Legend() {
   );
 }
 
+/**
+ * One session drawn on the time axis. A finished session runs plug-in → unplug;
+ * a live one runs plug-in → the end of energy brain's plan, because the plan is
+ * the rest of the same charge, not a second booking. Everything inside the
+ * block (header, kW line, charge bar) shares that same axis.
+ */
 interface Block {
   key: string;
   startMs: number;
   endMs: number;
   lane: number;
   label: string;
-  kind: "past" | "ongoing" | "predicted";
+  kind: "past" | "ongoing";
+  /** Actual kW over the elapsed part of the session. */
   power: number[];
   /** Connector rating (kW) — full scale for this block's power line. */
   ratedKw: number;
+  /** SoC when the vehicle plugged in. */
   socStart: number;
+  /** Where the charge ends up: the target while live, the final SoC once done. */
   socEnd: number;
   done: boolean;
   eta: string | null;
+  /** SoC right now — only set while a plan continues the session. */
+  socNow?: number;
+  /** The optimizer's 15-minute slots: kW allocated at each instant. */
+  planSlots?: { ms: number; limit: number }[];
 }
 
 function assignLanes(blocks: Omit<Block, "lane">[]): Block[] {
@@ -275,15 +313,37 @@ export default function ChargerScheduleCalendar({
       const startMs = dayjs(s.startTime).valueOf();
       const ongoing = s.endTime === null;
       const pastEndMs = ongoing ? now.valueOf() : dayjs(s.endTime).valueOf();
+
+      // The optimizer's plan for a live session is not a separate booking — it
+      // is the rest of the same charge, so it extends this block instead of
+      // starting a second one with its own 0–100 % bar.
+      const points = ongoing ? predictedBySession.get(s.id) : undefined;
+      const planTimes = points?.length ? points.map((p) => dayjs(p.time).valueOf()) : null;
+      const planEndMs = planTimes ? Math.max(...planTimes) + SAMPLE_MIN * 60_000 : null;
+      const hasPlan = planEndMs !== null && planEndMs > now.valueOf();
+      const endMs = hasPlan ? Math.max(pastEndMs, planEndMs) : pastEndMs;
+
       if (
-        startMs < pastEndMs &&
-        pastEndMs > windowStart.valueOf() &&
+        startMs < endMs &&
+        endMs > windowStart.valueOf() &&
         startMs < windowEnd.valueOf()
       ) {
+        const socNow = s.socEnd ?? vehicle?.soc ?? s.socStart;
+        const target = vehicle?.socCapPct ?? 100;
+        // The plan's own 15-minute slots, in time order. The bar draws them
+        // where they actually fall, so a pause shows up in the slot it happens
+        // in rather than as a token marker.
+        const planSlots =
+          hasPlan && points?.length
+            ? [...points]
+                .map((p) => ({ ms: dayjs(p.time).valueOf(), limit: p.limit }))
+                .filter((p) => p.ms + SAMPLE_MIN * 60_000 > now.valueOf())
+                .sort((a, b) => a.ms - b.ms)
+            : undefined;
         raw.push({
-          key: `${s.id}-past`,
+          key: `${s.id}-block`,
           startMs: Math.max(startMs, windowStart.valueOf()),
-          endMs: Math.min(pastEndMs, windowEnd.valueOf()),
+          endMs: Math.min(endMs, windowEnd.valueOf()),
           label: s.vehicleReg,
           kind: ongoing ? "ongoing" : "past",
           // Dummy history curve, scaled to the connector's actual rating. For a
@@ -296,33 +356,12 @@ export default function ChargerScheduleCalendar({
           })(),
           ratedKw: connectorKw(cp, s.connectorId),
           socStart: s.socStart,
-          socEnd: s.socEnd ?? vehicle?.soc ?? s.socStart,
+          socNow: hasPlan ? socNow : undefined,
+          socEnd: hasPlan ? target : socNow,
           done: !ongoing,
-          eta: null,
+          eta: hasPlan && planEndMs ? dayjs(planEndMs).format("h:mm a") : null,
+          planSlots,
         });
-      }
-
-      const points = predictedBySession.get(s.id);
-      if (ongoing && points?.length) {
-        const times = points.map((p) => dayjs(p.time).valueOf());
-        const firstMs = Math.max(Math.min(...times), now.valueOf());
-        const lastMs = Math.max(...times) + SAMPLE_MIN * 60_000;
-        if (lastMs > firstMs) {
-          const target = vehicle?.socCapPct ?? 100;
-          raw.push({
-            key: `${s.id}-predicted`,
-            startMs: firstMs,
-            endMs: Math.min(lastMs, windowEnd.valueOf()),
-            label: s.vehicleReg,
-            kind: "predicted",
-            power: points.map((p) => p.limit),
-            ratedKw: connectorKw(cp, s.connectorId),
-            socStart: vehicle?.soc ?? s.socStart,
-            socEnd: target,
-            done: false,
-            eta: dayjs(lastMs).format("h:mm a"),
-          });
-        }
       }
     }
     return assignLanes(raw);
@@ -366,14 +405,51 @@ export default function ChargerScheduleCalendar({
   }
 
   const nowX = xOf(now.valueOf());
+  /** Index of the site-power sample that contains "now" — where blue becomes orange. */
+  const nowSampleIndex = Math.max(
+    0,
+    Math.floor((now.valueOf() - windowStart.valueOf()) / (SAMPLE_MIN * 60_000)),
+  );
 
   const renderBlock = (b: Block) => {
     const left = xOf(b.startMs);
     const width = Math.max(10, xOf(b.endMs) - left);
-    const isPredicted = b.kind === "predicted";
-    const accent = isPredicted ? ORANGE : BLUE;
-    const socFill = Math.max(0, Math.min(100, b.socEnd));
-    const socFrom = Math.max(0, Math.min(100, b.socStart));
+
+    const clampPx = (px: number) => Math.max(0, Math.min(width, px));
+    const nowPx = clampPx(nowX - left);
+
+    // The bar is the session on the time axis, nothing else:
+    //   dark green   plugged in → now, charging that has happened
+    //   dark orange  now → end, the slots energy brain will charge in
+    //   light orange the slots it deliberately pauses in
+    // The SoC it arrived with has no place here — the vehicle was not charging
+    // then, so any width for it would be invented time. It is in the header.
+    const bar: { left: number; width: number; color: string }[] = [];
+    if (nowPx > 0) bar.push({ left: 0, width: nowPx, color: GREEN });
+    for (const slot of b.planSlots ?? []) {
+      const from = clampPx(Math.max(xOf(slot.ms) - left, nowPx));
+      const to = clampPx(xOf(slot.ms + SAMPLE_MIN * 60_000) - left);
+      if (to <= from) continue;
+      bar.push({
+        left: from,
+        width: to - from,
+        color: slot.limit > 0 ? ORANGE : ORANGE_PALE,
+      });
+    }
+    // How the plan is shaped, for the tooltip: how many stretches it charges in
+    // and how many times it pauses.
+    const stretches = (b.planSlots ?? []).reduce(
+      (acc, slot) => {
+        if (slot.limit > 0) {
+          if (!acc.charging) acc.count += 1;
+          acc.charging = true;
+        } else {
+          acc.charging = false;
+        }
+        return acc;
+      },
+      { count: 0, charging: false },
+    ).count;
 
     return (
       <div
@@ -381,87 +457,32 @@ export default function ChargerScheduleCalendar({
         style={{ position: "absolute", left, top: b.lane * LANE_HEIGHT + 6, width }}
         title={
           `${b.label} · ${dayjs(b.startMs).format("h:mm a")} – ${dayjs(b.endMs).format("h:mm a")}` +
-          ` · SoC ${Math.round(b.socStart)}% → ${Math.round(b.socEnd)}%` +
-          ` · peak ${Math.max(...b.power).toFixed(1)} kW of ${b.ratedKw} kW connector` +
-          `${isPredicted ? " · predicted by energy brain" : ""}`
+          ` · SoC ${Math.round(b.socStart)}%` +
+          (b.socNow != null ? ` → now ${Math.round(b.socNow)}%` : "") +
+          ` → ${Math.round(b.socEnd)}%` +
+          (stretches > 1
+            ? ` · plan: ${stretches} charging stretches, ${stretches - 1} pause${
+                stretches === 2 ? "" : "s"
+              }`
+            : b.planSlots?.length
+              ? " · plan: charges straight through"
+              : "") +
+          ` · peak ${Math.max(...b.power).toFixed(1)} kW of ${b.ratedKw} kW connector`
         }
       >
-        {/* Vehicle label above the block, as in the mock */}
+        {/* Header line: plate, then where the charge is going. It lives above
+            the curve instead of floating over the SoC bar, so nothing covers
+            the bar and nothing spills into the next block — a narrow block just
+            truncates, and the tooltip still carries the full detail. */}
         <div
           style={{
-            fontSize: 10,
-            fontWeight: 600,
-            color: "#4b5563",
-            lineHeight: `${LABEL_H}px`,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-          }}
-        >
-          {b.label}
-        </div>
-
-        {/* kW power curve — full scale is the connector's rating, so line
-            height is comparable across blocks instead of self-normalized. */}
-        <Sparkline
-          values={b.power}
-          color={accent}
-          width={width}
-          height={SPARK_H}
-          scaleMax={b.ratedKw}
-        />
-
-        {/* SoC progress bar: pale = SoC the vehicle arrived with, solid = SoC
-            gained in this session, dark cap = target reached. */}
-        <div
-          style={{
-            position: "relative",
-            height: SOC_H,
-            borderRadius: SOC_H / 2,
-            background: "#e5e7eb",
-            overflow: "hidden",
-            border: isPredicted ? `1px dashed ${ORANGE}` : "none",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              width: `${socFrom}%`,
-              background: isPredicted ? ORANGE_PALE : GREEN_PALE,
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              left: `${socFrom}%`,
-              top: 0,
-              bottom: 0,
-              width: `${Math.max(0, socFill - socFrom)}%`,
-              background: isPredicted ? ORANGE : GREEN,
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: 10,
-              background: b.done ? GREEN_DARK : "transparent",
-            }}
-          />
-        </div>
-
-        {/* Right-hand badge: ✓ when finished, % + ETA while charging */}
-        <div
-          style={{
-            position: "absolute",
-            right: -6,
-            top: LABEL_H + SPARK_H - 3,
             display: "flex",
             alignItems: "center",
-            gap: 4,
+            gap: 5,
+            height: LABEL_H,
             whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
           }}
         >
           <span
@@ -469,23 +490,101 @@ export default function ChargerScheduleCalendar({
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              width: 14,
-              height: 14,
-              borderRadius: 4,
-              fontSize: 9,
+              flexShrink: 0,
+              width: 12,
+              height: 12,
+              borderRadius: 3,
+              fontSize: 8,
               fontWeight: 700,
               color: "white",
-              background: b.done ? GREEN_DARK : isPredicted ? ORANGE : GREEN,
+              background: b.done ? GREEN_DARK : b.socNow != null ? ORANGE : GREEN,
             }}
           >
             {b.done ? "✓" : "+"}
           </span>
-          {!b.done && (
-            <span style={{ fontSize: 9, fontWeight: 600, color: isPredicted ? ORANGE : GREEN }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: "#4b5563" }}>{b.label}</span>
+          {/* The SoC story, colour-coded the same way the bar is: where it
+              plugged in (grey), where the charge has got to (green), where
+              energy brain will take it (orange). SoC is a level, not a
+              duration, so it is written here rather than drawn on the bar. */}
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            <span style={{ color: "#9ca3af" }}>{Math.round(b.socStart)}%</span>
+            {b.socNow != null && (
+              <>
+                <span style={{ color: "#9ca3af" }}> → </span>
+                <span style={{ color: GREEN }}>{Math.round(b.socNow)}%</span>
+              </>
+            )}
+            <span style={{ color: "#9ca3af" }}> → </span>
+            <span style={{ color: b.done ? GREEN_DARK : b.socNow != null ? ORANGE : GREEN }}>
               {Math.round(b.socEnd)}%{b.eta ? ` · ETA ${b.eta}` : ""}
             </span>
-          )}
+          </span>
         </div>
+
+        {/* kW power curve — full scale is the connector's rating, so line
+            height is comparable across blocks instead of self-normalized.
+            Past draw is blue; where the plan takes over the line turns orange. */}
+        {b.planSlots?.length && nowPx > 0 && nowPx < width ? (
+          <div style={{ display: "flex", height: SPARK_H }}>
+            <Sparkline
+              values={b.power}
+              color={BLUE}
+              width={nowPx}
+              height={SPARK_H}
+              scaleMax={b.ratedKw}
+            />
+            <Sparkline
+              values={b.planSlots.map((p) => p.limit)}
+              color={ORANGE}
+              width={width - nowPx}
+              height={SPARK_H}
+              scaleMax={b.ratedKw}
+            />
+          </div>
+        ) : (
+          <Sparkline
+            values={b.power}
+            color={BLUE}
+            width={width}
+            height={SPARK_H}
+            scaleMax={b.ratedKw}
+          />
+        )}
+
+        {/* The session on the time axis: green up to the "now" rule, then the
+            plan's own slots — orange where it charges, pale where it pauses. */}
+        <div
+          style={{
+            position: "relative",
+            height: BAR_H,
+            borderRadius: BAR_H / 2,
+            background: "#e5e7eb",
+            overflow: "hidden",
+          }}
+        >
+          {bar.map((seg) => (
+            <div
+              key={`${seg.color}-${seg.left}`}
+              style={{
+                position: "absolute",
+                left: seg.left,
+                top: 0,
+                bottom: 0,
+                width: seg.width,
+                background: seg.color,
+              }}
+            />
+          ))}
+        </div>
+
       </div>
     );
   };
@@ -618,11 +717,22 @@ export default function ChargerScheduleCalendar({
                       position: "relative",
                     }}
                   >
-                    <div style={{ position: "absolute", inset: 0, opacity: 0.9 }}>
+                    {/* Same rule as the blocks: drawn load in blue up to now,
+                        the optimizer's allocation in orange after it. */}
+                    <div
+                      style={{ position: "absolute", inset: 0, opacity: 0.9, display: "flex" }}
+                    >
                       <Sparkline
-                        values={values}
+                        values={values.slice(0, nowSampleIndex + 1)}
                         color={BLUE}
-                        width={totalWidth}
+                        width={nowX}
+                        height={SITE_ROW_H}
+                        scaleMax={siteLimit}
+                      />
+                      <Sparkline
+                        values={values.slice(nowSampleIndex)}
+                        color={ORANGE}
+                        width={Math.max(0, totalWidth - nowX)}
                         height={SITE_ROW_H}
                         scaleMax={siteLimit}
                       />

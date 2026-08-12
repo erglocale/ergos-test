@@ -39,12 +39,21 @@ const fastCharge = (count: number) => ({
 
 const idle = (hours: number) => ({ duration_hours: hours, threshold_hours: 2 });
 
-// Three repeated-fast-charging alerts (the newest is the worst offender) and
-// two excessive-idle ones.
+/** 12 V auxiliary battery — recovers once the vehicle runs or charges. */
+const aux = (volts: number, minutes: number) => ({
+  lowest_voltage: volts,
+  threshold: 11.8,
+  duration_seconds: minutes * 60,
+});
+
+// Three repeated-fast-charging alerts (the newest is the worst offender), two
+// excessive-idle ones and two low auxiliary battery.
 const SCRIPT: ScriptEntry[] = [
   { vehicle: 0, alertType: "repeated_fast_charging", hoursAgo: 14, payload: fastCharge(5), resolved: false },
+  { vehicle: 3, alertType: "low_aux_battery", hoursAgo: 17, payload: aux(11.1, 95), resolved: false },
   { vehicle: 2, alertType: "excessive_idle", hoursAgo: 20, payload: idle(5.5), resolved: false },
   { vehicle: 1, alertType: "repeated_fast_charging", hoursAgo: 2 * 24 + 3, payload: fastCharge(4), resolved: false },
+  { vehicle: 2, alertType: "low_aux_battery", hoursAgo: 2 * 24 + 19, payload: aux(10.7, 140), resolved: true },
   { vehicle: 3, alertType: "excessive_idle", hoursAgo: 3 * 24 + 2, payload: idle(3.2), resolved: true },
   { vehicle: 3, alertType: "repeated_fast_charging", hoursAgo: 4 * 24 + 6, payload: fastCharge(3), resolved: true },
 ];

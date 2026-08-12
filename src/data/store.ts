@@ -16,8 +16,8 @@ import type { CollectionKey, Db, Profile } from "./types";
 
 // All demo data lives in localStorage under this key. CRUD mutates it in
 // place and notifies subscribers; "Reset demo data" just deletes the key.
-// v16: fixtures replaced with the Etash / Eco Mobility fleets and hubs.
-const DB_KEY = "ergos-test:db:v16";
+// v17: low aux battery alerts, and one alert of each type on the first page.
+const DB_KEY = "ergos-test:db:v17";
 
 let cache: Db | null = null;
 // Live rows from energy-brain, merged (not persisted) on top of the fixtures.
@@ -189,10 +189,16 @@ const simStates = new Map<string, SimState>();
 let simSnapshot: ReadonlyMap<string, SimState> = new Map();
 /** localStorage is only rewritten this often, not on every 5 s step. */
 const SIM_PERSIST_MS = 30_000;
+/** One integration step — matches advance()'s own cap. */
+const SIM_STEP_MS = 15 * 60_000;
+/** How far back a newly seen energy-brain session is replayed from. */
+const BACKFILL_MAX_MS = 12 * 3_600_000;
 let lastSimPersist = 0;
 // Kept out of DB_KEY: this is derived state that must survive a reload, but it
 // also covers energy-brain sessions, which never belong in the fixture db.
-const SIM_KEY = "ergos-test:sim:v1";
+// v2: energy-brain sessions are replayed from their start, so the states saved
+// before that change (which began at zero progress) are dropped once.
+const SIM_KEY = "ergos-test:sim:v2";
 let simLoaded = false;
 
 function loadSimStates(): void {
@@ -368,15 +374,40 @@ export function tickSimulation(nowMs: number = Date.now()): void {
               taperFactor(simStates.get(s.id)?.soc ?? vehicle?.soc ?? s.socStart),
           };
 
-    const prior = simStates.get(s.id) ?? {
+    const stored = simStates.get(s.id);
+    const fromEnergyBrain = isEnergyBrainSession(s.id);
+    // A session energy-brain opened earlier has, as far as the demo is
+    // concerned, been charging ever since. Start its meter at the plug-in
+    // moment so the first tick can replay that time.
+    const openedMs = new Date(s.startTime).getTime();
+    let prior: SimState = stored ?? {
       // energy-brain reports the energy still REQUESTED, not delivered, so a
       // simulated session always starts its meter at zero.
-      energyKwh: isEnergyBrainSession(s.id) ? 0 : (s.energyKwh ?? 0),
+      energyKwh: fromEnergyBrain ? 0 : (s.energyKwh ?? 0),
       soc: vehicle?.soc ?? s.socStart,
       powerKw: 0,
-      updatedAt: nowMs,
+      updatedAt:
+        fromEnergyBrain && Number.isFinite(openedMs)
+          ? Math.min(nowMs, Math.max(nowMs - BACKFILL_MAX_MS, openedMs))
+          : nowMs,
       finished: false,
     };
+
+    // Replay that elapsed time. advance() deliberately caps one step, so the
+    // catch-up walks forward in cap-sized steps — and at the connector's
+    // physical rate, because the optimizer's plan describes the future only and
+    // would otherwise silence a charge that has already happened. Only ever
+    // done on first sight of an energy-brain session: a fixture session left
+    // open while the tab was closed must NOT accrue hours of charge.
+    if (!stored && fromEnergyBrain && nowMs - prior.updatedAt > SIM_STEP_MS) {
+      const unplanned: SimInputs = { ...base, plannedKw: null };
+      let t = prior.updatedAt;
+      while (t < nowMs && !prior.finished) {
+        t = Math.min(nowMs, t + SIM_STEP_MS);
+        prior = advance(prior, unplanned, t);
+      }
+    }
+
     const next = advance(prior, inputs, nowMs);
     simStates.set(s.id, next);
     if (isEnergyBrainSession(s.id)) {

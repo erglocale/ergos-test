@@ -297,7 +297,7 @@ export default function ChargerWarnings() {
             current: currentPageNumber,
             onChange: (page) => setCurrentPageNumber(page),
             showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} warnings`,
-            position: ["bottomCenter"],
+            placement: ["bottomCenter"],
           }}
           scroll={{ x: "max-content" }}
           bordered={false}

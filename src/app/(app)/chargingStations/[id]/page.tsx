@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import ChargerAnalytics from "@/components/chargers/ChargerAnalytics";
 import ChargerControls from "@/components/chargers/ChargerControls";
-import ChargerOverview from "@/components/chargers/ChargerOverview";
+import ChargerHealthPanel from "@/components/chargers/ChargerHealthPanel";
 import ChargerSessionsList from "@/components/chargers/ChargerSessionsList";
 import Connectors from "@/components/chargers/Connectors";
 import { deriveCharger } from "@/components/chargers/derive";
@@ -158,6 +158,9 @@ export default function Details() {
         <Title level={5}>Connectors</Title>
         <Connectors cp={chargerData} />
       </div>
+      {/* Health score and the error log live at the bottom of Details rather
+          than in a tab of their own. */}
+      <ChargerHealthPanel cp={chargerData} />
     </>
   );
 
@@ -189,14 +192,8 @@ export default function Details() {
       </div>
 
       <Tabs
-        defaultActiveKey="0"
+        defaultActiveKey="1"
         items={[
-          {
-            key: "0",
-            label: "Overview",
-            children: <ChargerOverview cp={chargerData} />,
-            style: { paddingTop: "0px" },
-          },
           { key: "1", label: "Details", children: detailsTab },
           {
             key: "2",

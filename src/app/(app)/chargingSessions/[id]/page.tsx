@@ -4,7 +4,7 @@ import { Empty, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import ReactECharts from "echarts-for-react";
 import { useParams } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { BsLightningChargeFill, BsSpeedometer } from "react-icons/bs";
 import { IoCarSport } from "react-icons/io5";
 import { LuTimer } from "react-icons/lu";
@@ -82,6 +82,11 @@ export default function SessionDetail() {
   const sessionId = decodeURIComponent(params.id);
   const db = useDb();
 
+  // Which measurands are shown. Kept in React state because the chart is
+  // rebuilt (notMerge) on every simulation tick — echarts' own legend state
+  // would be thrown away each time, so a line switched off came straight back.
+  const [legendSelected, setLegendSelected] = useState<Record<string, boolean>>({});
+
   const session = db.sessions.find((s) => s.id === sessionId);
   const vehicle = session ? db.vehicles.find((v) => v.reg === session.vehicleReg) : undefined;
   const chargepoint = session ? db.chargepoints.find((c) => c.id === session.chargerId) : undefined;
@@ -143,6 +148,10 @@ export default function SessionDetail() {
       itemHeight: 14,
       itemGap: 20,
       data: METRICS.map((m) => m.name),
+      // Any combination, including none — leave one line on its own if that is
+      // all you want to read.
+      selectedMode: "multiple",
+      selected: legendSelected,
     },
     tooltip: {
       trigger: "axis",
@@ -336,7 +345,15 @@ export default function SessionDetail() {
           Meter Values vs. Time
         </Title>
         {meterSeries.length > 0 ? (
-          <ReactECharts option={chartOption} style={{ height: 384 }} notMerge />
+          <ReactECharts
+            option={chartOption}
+            style={{ height: 384 }}
+            notMerge
+            onEvents={{
+              legendselectchanged: (e: { selected: Record<string, boolean> }) =>
+                setLegendSelected(e.selected),
+            }}
+          />
         ) : (
           <div className="flex h-64 items-center justify-center">
             <Text type="secondary">No data available for this session.</Text>
