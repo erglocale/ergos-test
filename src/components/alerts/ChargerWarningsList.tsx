@@ -299,7 +299,9 @@ export default function ChargerWarnings() {
             showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} warnings`,
             placement: ["bottomCenter"],
           }}
-          scroll={{ x: "max-content" }}
+          // Rows scroll inside the card, header pinned — same as the vehicle
+          // alerts table, so the two tabs behave identically.
+          scroll={{ x: "max-content", y: "min(58vh, 560px)" }}
           bordered={false}
           rowClassName={() => "custom-table-row"}
           className="styled-warnings-table"

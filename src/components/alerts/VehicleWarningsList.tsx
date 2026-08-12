@@ -367,7 +367,9 @@ export default function VehicleWarnings() {
             showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} alerts`,
             placement: ["bottomCenter"],
           }}
-          scroll={{ x: "max-content" }}
+          // y makes the rows scroll inside the card with the header pinned,
+          // so a long page of alerts no longer drags the whole page with it.
+          scroll={{ x: "max-content", y: "min(58vh, 560px)" }}
           bordered={false}
           rowClassName={() => "custom-table-row"}
           className="styled-warnings-table"

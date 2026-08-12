@@ -1,5 +1,6 @@
 import dayjs, { type Dayjs } from "dayjs";
-import type { Trip, Vehicle } from "@/data/types";
+import { taperFactor } from "@/data/liveSim";
+import type { ChargingSession, Trip, Vehicle } from "@/data/types";
 
 export function fmtDateTime(iso: string | number | null | undefined): string {
   if (iso === null || iso === undefined || iso === "") return "N/A";
@@ -137,12 +138,91 @@ export interface SocAuxPoint {
   aux: number;
 }
 
+/** One charge the vehicle actually went through, on the chart's time axis. */
+export interface ChargeWindow {
+  startMs: number;
+  /** "now" while the session is still running. */
+  endMs: number;
+  socStart: number;
+  socEnd: number;
+  live: boolean;
+}
+
+/**
+ * The vehicle's charges as time windows, taken from the session rows rather
+ * than invented. A live session is simulated, so its end is "now" and its end
+ * SoC is the vehicle's current one — which is exactly what the simulator has
+ * been writing. That makes the battery chart agree with the session, the hub
+ * calendar and the SoC ring instead of telling a third story.
+ */
+export function chargeWindowsFor(
+  sessions: ChargingSession[],
+  vehicle: Vehicle,
+  nowMs: number = dayjs().valueOf(),
+): ChargeWindow[] {
+  const out: ChargeWindow[] = [];
+  for (const s of sessions) {
+    if (s.vehicleReg !== vehicle.reg) continue;
+    const startMs = dayjs(s.startTime).valueOf();
+    const live = s.endTime === null;
+    const endMs = live ? nowMs : dayjs(s.endTime).valueOf();
+    const socEnd = live ? vehicle.soc : s.socEnd;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) continue;
+    if (endMs <= startMs || socEnd == null) continue;
+    out.push({ startMs, endMs, socStart: s.socStart, socEnd, live });
+  }
+  return out.sort((a, b) => a.startMs - b.startMs);
+}
+
+/**
+ * SoC as a fraction of the way through a charge. Not linear: the rate is
+ * shaped by the same taper the live simulator uses, so a charge crossing 80 %
+ * visibly slows down. Returns a sampler so the integration is done once per
+ * window rather than once per point.
+ */
+function chargeCurve(socStart: number, socEnd: number): (progress: number) => number {
+  if (socEnd <= socStart) {
+    return (p) => socStart + (socEnd - socStart) * Math.min(1, Math.max(0, p));
+  }
+  const STEPS = 48;
+  const dSoc = (socEnd - socStart) / STEPS;
+  // How long each equal slice of SoC takes, in arbitrary units.
+  const slices: number[] = [];
+  let total = 0;
+  for (let i = 0; i < STEPS; i += 1) {
+    const dt = dSoc / taperFactor(socStart + dSoc * (i + 0.5));
+    slices.push(dt);
+    total += dt;
+  }
+  return (progress) => {
+    let want = Math.min(1, Math.max(0, progress)) * total;
+    let soc = socStart;
+    for (let i = 0; i < STEPS; i += 1) {
+      if (want <= slices[i]) return soc + dSoc * (want / slices[i]);
+      want -= slices[i];
+      soc += dSoc;
+    }
+    return socEnd;
+  };
+}
+
 /**
  * Derived SoC + aux-battery telemetry history between two instants
- * (fixtures store only the current SoC). ~15-minute samples; the final
- * sample converges on the vehicle's live SoC.
+ * (fixtures store only the current SoC). ~15-minute samples.
+ *
+ * Where a charge is known — `charges`, built from the session rows — the curve
+ * IS that charge: it starts at the SoC the vehicle plugged in with and ends at
+ * the SoC it has reached, so a running simulated session shows as a rising line
+ * that keeps growing while the demo is open. Between charges the line falls
+ * from one to the next (driving), and outside them it falls back to the generic
+ * daily pattern, anchored so it joins up rather than jumping.
  */
-export function deriveSocAuxHistory(vehicle: Vehicle, start: Dayjs, end: Dayjs): SocAuxPoint[] {
+export function deriveSocAuxHistory(
+  vehicle: Vehicle,
+  start: Dayjs,
+  end: Dayjs,
+  charges: ChargeWindow[] = [],
+): SocAuxPoint[] {
   const startMs = start.valueOf();
   const endMs = end.valueOf();
   if (endMs <= startMs) return [];
@@ -152,13 +232,56 @@ export function deriveSocAuxHistory(vehicle: Vehicle, start: Dayjs, end: Dayjs):
   const patternAtAnchor = socPatternAt(vehicle, anchorMs);
   const socOffset = vehicle.soc - patternAtAnchor;
 
+  const windows = charges
+    .filter((w) => w.endMs > startMs && w.startMs < endMs)
+    .map((w) => ({ ...w, curve: chargeCurve(w.socStart, w.socEnd) }));
+  // Every instant the SoC is actually known: each charge's two ends.
+  const keys = windows
+    .flatMap((w) => [
+      { ms: w.startMs, soc: w.socStart },
+      { ms: w.endMs, soc: w.socEnd },
+    ])
+    .sort((a, b) => a.ms - b.ms);
+
+  /** The generic pattern shifted to pass through a known point. */
+  const patternThrough = (t: number, key: { ms: number; soc: number }) =>
+    socPatternAt(vehicle, t) + (key.soc - socPatternAt(vehicle, key.ms));
+
+  const socAt = (t: number): number => {
+    const inside = windows.find((w) => t >= w.startMs && t <= w.endMs);
+    if (inside) return inside.curve((t - inside.startMs) / (inside.endMs - inside.startMs));
+    if (keys.length === 0) {
+      const blend = Math.min(1, Math.max(0, (t - startMs) / Math.max(1, anchorMs - startMs)));
+      return socPatternAt(vehicle, t) + socOffset * blend;
+    }
+    let prev: { ms: number; soc: number } | undefined;
+    let next: { ms: number; soc: number } | undefined;
+    for (const k of keys) {
+      if (k.ms <= t) prev = k;
+      else {
+        next = k;
+        break;
+      }
+    }
+    // Between two charges the vehicle is out working: run the SoC down from
+    // where the last charge left it to where the next one picked it up.
+    if (prev && next) {
+      const f = (t - prev.ms) / Math.max(1, next.ms - prev.ms);
+      const jitter = (noise(vehicle.id, Math.floor(t / 900_000)) - 0.5) * 1.2;
+      return prev.soc + (next.soc - prev.soc) * f + jitter;
+    }
+    return patternThrough(t, (prev ?? next) as { ms: number; soc: number });
+  };
+
   const points: SocAuxPoint[] = [];
   for (let t = startMs; t <= endMs; t += stepMs) {
-    const f = (t - startMs) / Math.max(1, anchorMs - startMs);
-    const blend = Math.min(1, Math.max(0, f));
-    const soc = Math.min(100, Math.max(0, socPatternAt(vehicle, t) + socOffset * blend));
+    const soc = Math.min(100, Math.max(0, socAt(t)));
+    // The DC-DC converter tops the 12 V battery up while the pack charges, so
+    // the aux line lifts over exactly the same windows.
     const hour = dayjs(t).hour();
-    const charging = hour >= 21 || hour < 8;
+    const charging = windows.length
+      ? windows.some((w) => t >= w.startMs && t <= w.endMs)
+      : hour >= 21 || hour < 8;
     const aux = 12.5 + noise(vehicle.id, Math.floor(t / 600_000)) * 0.7 + (charging ? 0.6 : 0);
     points.push({ ts: t, soc: Math.round(soc * 10) / 10, aux: Math.round(aux * 100) / 100 });
   }

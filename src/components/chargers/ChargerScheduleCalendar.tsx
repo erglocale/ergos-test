@@ -43,6 +43,10 @@ const SPARK_H = 26;
 const BAR_H = 10;
 const LANE_HEIGHT = LABEL_H + SPARK_H + BAR_H + 16;
 const SITE_ROW_H = 56;
+/** Width of the pinned hub/charger name column. */
+const LEFT_COL_W = 210;
+/** The calendar scrolls inside itself rather than stretching the page. */
+const BODY_MAX_H = "min(70vh, 620px)";
 
 const BLUE = "#6366f1";
 const GREEN = "#22c55e";
@@ -269,7 +273,13 @@ export default function ChargerScheduleCalendar({
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollLeft = Math.max(0, xOf(now.valueOf()) - el.clientWidth * 0.55);
+    // The name column is pinned over the first LEFT_COL_W px of the viewport,
+    // so "now" is centred in what is actually visible of the track.
+    if (el)
+      el.scrollLeft = Math.max(
+        0,
+        xOf(now.valueOf()) - (el.clientWidth - LEFT_COL_W) * 0.55,
+      );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -599,87 +609,128 @@ export default function ChargerScheduleCalendar({
       }}
     >
       <Legend />
-      <div style={{ display: "flex" }}>
-        {/* Sticky left column */}
-        <div style={{ flex: "0 0 210px", borderRight: "1px solid #f0f0f0" }}>
-          <div style={{ height: 34, borderBottom: "1px solid #f0f0f0" }} />
-          {hubGroups.map(([hub, cps]) => {
-            const isCollapsed = collapsed[hub];
-            const gridLimit = hubLimitKw(hub, cps);
-            return (
-              <div key={hub}>
-                <div
-                  style={{
-                    height: SITE_ROW_H,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "0 10px",
-                    backgroundColor: "#fafafa",
-                    borderTop: "1px solid #f0f0f0",
-                    borderBottom: "1px solid #f0f0f0",
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
-                  <span
-                    onClick={() => setCollapsed((c) => ({ ...c, [hub]: !c[hub] }))}
-                    style={{ cursor: "pointer", color: "#6b7280", fontSize: 10 }}
-                  >
-                    {isCollapsed ? "▶" : "▼"}
-                  </span>
-                  <Link href={`/hubs/${encodeURIComponent(hub)}`} style={{ color: "inherit" }}>
-                    {hub}
-                  </Link>
-                  <span
+      {/* One scroll box for BOTH axes, so the calendar scrolls inside itself
+          instead of stretching the page. The name column pins to the left and
+          the hour ruler to the top, which is only possible while they share a
+          single scrolling ancestor — hence one scroller rather than one per
+          column. overscroll-behavior stops the page from taking over once this
+          box reaches its end. */}
+      <div
+        ref={scrollRef}
+        style={{
+          maxHeight: BODY_MAX_H,
+          overflow: "auto",
+          overscrollBehavior: "contain",
+        }}
+      >
+        <div style={{ display: "flex", width: "max-content", minWidth: "100%" }}>
+          {/* Name column — pinned while the track scrolls under it */}
+          <div
+            style={{
+              flex: `0 0 ${LEFT_COL_W}px`,
+              width: LEFT_COL_W,
+              borderRight: "1px solid #f0f0f0",
+              position: "sticky",
+              left: 0,
+              // Above the now rule (5) and the hour ruler (2): the track has to
+              // pass UNDER the names, not over them.
+              zIndex: 6,
+              background: "white",
+            }}
+          >
+            <div
+              style={{
+                height: 34,
+                borderBottom: "1px solid #f0f0f0",
+                position: "sticky",
+                top: 0,
+                zIndex: 7,
+                background: "white",
+              }}
+            />
+            {hubGroups.map(([hub, cps]) => {
+              const isCollapsed = collapsed[hub];
+              const gridLimit = hubLimitKw(hub, cps);
+              return (
+                <div key={hub}>
+                  <div
                     style={{
-                      fontSize: 9,
+                      height: SITE_ROW_H,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "0 10px",
+                      backgroundColor: "#fafafa",
+                      borderTop: "1px solid #f0f0f0",
+                      borderBottom: "1px solid #f0f0f0",
+                      fontSize: 12,
                       fontWeight: 600,
-                      color: BLUE,
-                      background: "#eef2ff",
-                      borderRadius: 10,
-                      padding: "1px 6px",
-                      whiteSpace: "nowrap",
                     }}
                   >
-                    {hubGridLimits[hub] === undefined ? "Limit" : "Grid"}{" "}
-                    {Math.round(gridLimit)} kW
-                  </span>
+                    <span
+                      onClick={() => setCollapsed((c) => ({ ...c, [hub]: !c[hub] }))}
+                      style={{ cursor: "pointer", color: "#6b7280", fontSize: 10 }}
+                    >
+                      {isCollapsed ? "▶" : "▼"}
+                    </span>
+                    <Link href={`/hubs/${encodeURIComponent(hub)}`} style={{ color: "inherit" }}>
+                      {hub}
+                    </Link>
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 600,
+                        color: BLUE,
+                        background: "#eef2ff",
+                        borderRadius: 10,
+                        padding: "1px 6px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {hubGridLimits[hub] === undefined ? "Limit" : "Grid"}{" "}
+                      {Math.round(gridLimit)} kW
+                    </span>
+                  </div>
+                  {!isCollapsed &&
+                    cps.map((cp) => {
+                      const lanes = Math.max(1, ...blocksFor(cp).map((b) => b.lane + 1));
+                      return (
+                        <div
+                          key={cp.id}
+                          style={{
+                            height: lanes * LANE_HEIGHT + 8,
+                            display: "flex",
+                            alignItems: "center",
+                            padding: "0 12px",
+                            borderBottom: "1px solid #f5f5f5",
+                            fontSize: 13,
+                          }}
+                        >
+                          <Link href={`/chargingStations/${cp.id}`} style={{ color: "#f97417" }}>
+                            {cp.name}
+                          </Link>
+                        </div>
+                      );
+                    })}
                 </div>
-                {!isCollapsed &&
-                  cps.map((cp) => {
-                    const lanes = Math.max(1, ...blocksFor(cp).map((b) => b.lane + 1));
-                    return (
-                      <div
-                        key={cp.id}
-                        style={{
-                          height: lanes * LANE_HEIGHT + 8,
-                          display: "flex",
-                          alignItems: "center",
-                          padding: "0 12px",
-                          borderBottom: "1px solid #f5f5f5",
-                          fontSize: 13,
-                        }}
-                      >
-                        <Link href={`/chargingStations/${cp.id}`} style={{ color: "#f97417" }}>
-                          {cp.name}
-                        </Link>
-                      </div>
-                    );
-                  })}
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
 
-        {/* Timeline */}
-        <div ref={scrollRef} style={{ overflowX: "auto", flex: 1 }}>
-          <div style={{ width: totalWidth, position: "relative" }}>
+          {/* Timeline. Its width is the full track: the scroll box above owns
+              both axes, so this column is laid out at natural size rather than
+              flexing. */}
+          <div style={{ width: totalWidth, position: "relative", flex: "0 0 auto" }}>
+            {/* Hour ruler — pinned to the top of the scroll box */}
             <div
               style={{
                 display: "flex",
                 height: 34,
                 borderBottom: "1px solid #f0f0f0",
+                position: "sticky",
+                top: 0,
+                zIndex: 2,
+                background: "white",
               }}
             >
               {hourTicks.map((t) => (
@@ -800,11 +851,14 @@ export default function ChargerScheduleCalendar({
                 zIndex: 5,
               }}
             >
+              {/* The time chip rides the top of the scroll box, so the rule is
+                  still labelled after scrolling down a few chargers. */}
               <div
                 style={{
-                  position: "absolute",
+                  position: "sticky",
                   top: 2,
-                  left: -30,
+                  marginLeft: -30,
+                  display: "inline-block",
                   backgroundColor: "#111827",
                   color: "white",
                   fontSize: 10,

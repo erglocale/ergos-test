@@ -5,9 +5,11 @@ import { Button, Card, DatePicker, Segmented } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import ReactECharts from "echarts-for-react";
 import { useMemo, useState } from "react";
+import { useDb } from "@/data/store";
 import type { Vehicle } from "@/data/types";
 import { SectionLabel, SURFACE_CARD_STYLE } from "./ui";
 import {
+  chargeWindowsFor,
   deriveLastTelemetryTs,
   deriveSocAuxHistory,
   fmtDateTime,
@@ -156,20 +158,41 @@ function MetricChart({
 }
 
 function SocAndAuxChart({ vehicle, maxSocLimit }: { vehicle: Vehicle; maxSocLimit: number | null }) {
+  const db = useDb();
   const [rangePreset, setRangePreset] = useState<string | number>("24h");
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(1, "day"), dayjs()]);
+  const [customRange, setCustomRange] = useState<[Dayjs, Dayjs]>([
+    dayjs().subtract(1, "day"),
+    dayjs(),
+  ]);
+
+  // "Last 24h" has to follow the clock rather than freeze at mount: a live
+  // session keeps charging while the page is open, and a fixed window would
+  // stop short of it. Rounded to the minute so the series is not rebuilt on
+  // every simulation tick.
+  const nowMinuteMs = dayjs().startOf("minute").valueOf();
+  const range = useMemo<[Dayjs, Dayjs]>(
+    () =>
+      rangePreset === "24h"
+        ? [dayjs(nowMinuteMs).subtract(1, "day"), dayjs(nowMinuteMs)]
+        : customRange,
+    [rangePreset, nowMinuteMs, customRange],
+  );
 
   const handleRangePresetChange = (next: string | number) => {
     setRangePreset(next);
-    if (next === "24h") {
-      setRange([dayjs().subtract(1, "day"), dayjs()]);
-    }
     // 'custom' keeps whatever the user picked in the RangePicker
   };
 
+  // The charges this vehicle actually went through, live one included, so the
+  // chart tells the same story as the sessions table.
+  const charges = useMemo(
+    () => chargeWindowsFor(db.sessions, vehicle),
+    [db.sessions, vehicle],
+  );
+
   const data = useMemo(
-    () => deriveSocAuxHistory(vehicle, range[0], range[1]),
-    [vehicle, range],
+    () => deriveSocAuxHistory(vehicle, range[0], range[1], charges),
+    [vehicle, range, charges],
   );
 
   return (
@@ -192,7 +215,7 @@ function SocAndAuxChart({ vehicle, maxSocLimit }: { vehicle: Vehicle; maxSocLimi
             value={range}
             onChange={(values) => {
               if (!values?.[0] || !values?.[1]) return;
-              setRange([values[0], values[1]]);
+              setCustomRange([values[0], values[1]]);
             }}
             format={DATE_FORMAT}
           />
