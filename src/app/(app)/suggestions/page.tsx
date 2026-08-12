@@ -26,7 +26,7 @@ import {
 import SuggestionDrawer, {
   DrawerRecord,
 } from "@/components/suggestions/SuggestionDrawer";
-import { updateRow, useDb } from "@/data/store";
+import { setVehicleSocCap, updateRow, useDb } from "@/data/store";
 
 const { Title, Text } = Typography;
 const ORANGE = "#F26E21";
@@ -330,12 +330,10 @@ export default function Suggestions() {
   const applySuggestion = (row: CapRow) => {
     if (row.socLimit?.suggested_cap == null) return;
     updateRow("suggestions", row.suggestionId, { status: "Applied" });
+    // Matches on the plate; the cap goes through setVehicleSocCap so it also
+    // lands on energy-brain's demo vans, whose rows aren't in the fixture db.
     const vehicle = db.vehicles.find((v) => v.reg === row.label);
-    if (vehicle) {
-      updateRow("vehicles", vehicle.id, {
-        socCapPct: row.socLimit.suggested_cap,
-      });
-    }
+    if (vehicle) setVehicleSocCap(vehicle.id, row.socLimit.suggested_cap);
     messageApi.success(
       `Charge limit set to ${row.socLimit.suggested_cap}% for ${row.label || `EV ${row.evId}`}`,
     );

@@ -14,7 +14,7 @@ import type { TableProps } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import VehiclePhoto from "@/components/vehicles/vehiclePhoto";
-import { isEnergyBrainVehicle, updateRow, useDb } from "@/data/store";
+import { setVehicleSocCap, useDb } from "@/data/store";
 import type { Suggestion, Vehicle } from "@/data/types";
 import { message } from "@/lib/antdStatic";
 
@@ -181,18 +181,14 @@ export default function ChargingPlanCard({
 
     // Saving is what makes the plan real: the resolved target becomes the
     // vehicle's SoC cap, which is the target the charging simulation and the
-    // optimizer's schedule both charge to. energy-brain's own vehicles are
-    // skipped — it owns those rows, and the next poll would undo the write.
+    // optimizer's schedule both charge to. setVehicleSocCap routes energy-brain's
+    // own vehicles through the sandbox override layer, since a write to its rows
+    // would be undone by the next poll.
     let applied = 0;
-    let skipped = 0;
     for (const v of vehicles) {
       const target = effectiveTarget(v, complete[v.reg]);
-      if (isEnergyBrainVehicle(v.id)) {
-        if (target !== v.socCapPct) skipped += 1;
-        continue;
-      }
       if (target !== v.socCapPct) {
-        updateRow("vehicles", v.id, { socCapPct: target });
+        setVehicleSocCap(v.id, target);
         applied += 1;
       }
     }
@@ -214,9 +210,6 @@ export default function ChargingPlanCard({
     }
     if (applied > 0) {
       parts.push(`${applied} target${applied === 1 ? "" : "s"} updated`);
-    }
-    if (skipped > 0) {
-      parts.push(`${skipped} left to energy brain`);
     }
     message.success(`Saved — ${parts.join(", ")}.`);
   };

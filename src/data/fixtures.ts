@@ -317,10 +317,11 @@ export function makeFixtures(now = dayjs()): Db {
   sessions.sort((a, b) => (a.startTime < b.startTime ? 1 : -1));
 
   // ---- alerts (telemetry vehicle alerts) ----------------------------------
-  // Only the five alert types the real system actually fires, in roughly the
-  // real proportions (overspeed dominates by an order of magnitude:
-  // 607 / 49 / 15 / 12 / 6 in production at the time of writing). Payload
-  // fields are the ones production's getAlertSummary() renders per type.
+  // The alert types the real system fires, in roughly the real proportions
+  // (overspeed dominates by an order of magnitude: 607 / 49 / 15 / 12 / 6 in
+  // production at the time of writing, with repeated fast charging rarer
+  // still). Payload fields are the ones production's getAlertSummary() renders
+  // per type.
   const alertSpecs: Array<{
     alertType: Alert["alertType"];
     severity: Alert["severity"];
@@ -365,6 +366,18 @@ export function makeFixtures(now = dayjs()): Db {
       severity: "warning",
       weight: 6,
       payload: () => ({ duration_hours: round1(between(2.5, 9)), threshold_hours: 2 }),
+    },
+    {
+      // 10 kW is roughly 1C on these 8–12 kWh 3W packs, so anything above it is
+      // a swap-station style top-up rather than the depot's 3 kW overnight AC.
+      alertType: "repeated_fast_charging",
+      severity: "warning",
+      weight: 5,
+      payload: () => ({
+        consecutive_fast_charge_count: int(3, 6),
+        required_fast_charge_count: 3,
+        fast_charging_power_threshold_kw: 10,
+      }),
     },
   ];
   const totalWeight = alertSpecs.reduce((s, a) => s + a.weight, 0);

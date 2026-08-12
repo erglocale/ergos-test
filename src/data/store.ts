@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { demoVehicleAlerts } from "./demoAlerts";
 import type { EnergyOverlay } from "./energyBrain";
 import { makeFixtures } from "./fixtures";
 import {
@@ -15,7 +16,8 @@ import type { CollectionKey, Db, Profile } from "./types";
 
 // All demo data lives in localStorage under this key. CRUD mutates it in
 // place and notifies subscribers; "Reset demo data" just deletes the key.
-const DB_KEY = "ergos-test:db:v14";
+// v15: fixture alerts now include repeated fast charging.
+const DB_KEY = "ergos-test:db:v15";
 
 let cache: Db | null = null;
 // Live rows from energy-brain, merged (not persisted) on top of the fixtures.
@@ -109,15 +111,68 @@ export function setEnergyOverlay(overlay: EnergyOverlay | null): void {
   listeners.forEach((l) => l());
 }
 
+// ---- SoC cap overrides -----------------------------------------------------
+// energy-brain owns target_soc for its own vehicles, so writing to the fixture
+// rows never reaches them and its next poll would undo anything merged in.
+// Accepting a cap suggestion (or editing the limit, or saving a hub charging
+// plan) records the cap here instead and the merge lays it over the overlay.
+// Sandbox-only: nothing is ever written back to energy-brain.
+const CAP_KEY = "ergos-test:soc-caps:v1";
+let capOverrides: Record<string, number> | null = null;
+
+function loadCapOverrides(): Record<string, number> {
+  if (capOverrides) return capOverrides;
+  capOverrides = {};
+  if (typeof window === "undefined") return capOverrides;
+  try {
+    const raw = window.localStorage.getItem(CAP_KEY);
+    if (raw) capOverrides = JSON.parse(raw) as Record<string, number>;
+  } catch {
+    // corrupt overrides — fall back to what energy-brain reports
+  }
+  return capOverrides;
+}
+
+/**
+ * Set a vehicle's SoC cap, whichever layer owns the vehicle. This is the target
+ * the live simulation charges to, so the change shows up on the vehicle detail
+ * page, the charging plan and the schedule at once.
+ */
+export function setVehicleSocCap(vehicleId: string, cap: number): void {
+  if (!isEnergyBrainVehicle(vehicleId)) {
+    updateRow("vehicles", vehicleId, { socCapPct: cap });
+    return;
+  }
+  capOverrides = { ...loadCapOverrides(), [vehicleId]: cap };
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(CAP_KEY, JSON.stringify(capOverrides));
+    } catch {
+      // storage full/unavailable — the override still applies in memory
+    }
+  }
+  merged = null;
+  listeners.forEach((l) => l());
+}
+
 export function getDb(): Db {
   if (!merged) {
     const base = load();
+    const caps = loadCapOverrides();
+    const overlayVehicles = energyOverlay?.vehicles.map((v) =>
+      caps[v.id] != null && caps[v.id] !== v.socCapPct ? { ...v, socCapPct: caps[v.id] } : v,
+    );
     const combined: Db = energyOverlay
       ? {
           ...base,
-          vehicles: [...energyOverlay.vehicles, ...base.vehicles],
+          vehicles: [...(overlayVehicles ?? []), ...base.vehicles],
           chargepoints: [...energyOverlay.chargepoints, ...base.chargepoints],
           sessions: [...energyOverlay.sessions, ...base.sessions],
+          // The demo vans have no alert feed of their own; theirs are
+          // synthesized so the fleet the demo actually shows has alerts too.
+          alerts: [...demoVehicleAlerts(energyOverlay.vehicles), ...base.alerts].sort((a, b) =>
+            a.createdAt < b.createdAt ? 1 : -1,
+          ),
         }
       : base;
     merged = applySim(combined);
@@ -523,9 +578,11 @@ export function resetDb(): void {
   simStates.clear();
   simSnapshot = new Map();
   lastSimPersist = 0;
+  capOverrides = {};
   if (typeof window !== "undefined") {
     try {
       window.localStorage.removeItem(SIM_KEY);
+      window.localStorage.removeItem(CAP_KEY);
     } catch {
       // nothing to clean up
     }

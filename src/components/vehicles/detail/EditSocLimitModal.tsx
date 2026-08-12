@@ -2,7 +2,7 @@
 
 import { Button, Form, InputNumber, Modal } from "antd";
 import { useEffect } from "react";
-import { updateRow } from "@/data/store";
+import { setVehicleSocCap } from "@/data/store";
 import type { Vehicle } from "@/data/types";
 import { message } from "@/lib/antdStatic";
 
@@ -27,7 +27,7 @@ export default function EditSocLimitModal({
   }, [open, vehicle, form]);
 
   const onFinish = (values: { maxSocLimit: number }) => {
-    updateRow("vehicles", vehicle.id, { socCapPct: Number(values.maxSocLimit) });
+    setVehicleSocCap(vehicle.id, Number(values.maxSocLimit));
     form.resetFields();
     message.success("Vehicle configuration updated successfully");
     handleOpen(false);
