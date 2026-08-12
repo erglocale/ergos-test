@@ -83,7 +83,7 @@ export default function SessionsList({
       if (t.isBefore(start.startOf("day")) || t.isAfter(end.endOf("day"))) return false;
       if (vehicleNumberPlates.length && !vehicleNumberPlates.includes(s.vehicleReg)) return false;
       // Hub is where the charging happened, not where the vehicle is based —
-      // a Six Mile van plugged in at Beltola belongs to Beltola's sessions.
+      // a Six Mile van plugged in at Azara belongs to Azara's sessions.
       if (hubFilter && hubForSession(s, db.chargepoints) !== hubFilter) return false;
       return true;
     });

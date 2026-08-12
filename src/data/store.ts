@@ -16,8 +16,8 @@ import type { CollectionKey, Db, Profile } from "./types";
 
 // All demo data lives in localStorage under this key. CRUD mutates it in
 // place and notifies subscribers; "Reset demo data" just deletes the key.
-// v15: fixture alerts now include repeated fast charging.
-const DB_KEY = "ergos-test:db:v15";
+// v16: fixtures replaced with the Etash / Eco Mobility fleets and hubs.
+const DB_KEY = "ergos-test:db:v16";
 
 let cache: Db | null = null;
 // Live rows from energy-brain, merged (not persisted) on top of the fixtures.

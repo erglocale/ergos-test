@@ -18,17 +18,30 @@ export function getDurationString(startIso: string, endIso: string): string {
   return result.trim();
 }
 
-// Fixture trips have no addresses — derive deterministic Guwahati locality
-// addresses from the trip id so the table/detail views stay stable.
+// Fixture trips have no addresses — derive deterministic locality addresses
+// from the trip id so the table/detail views stay stable. Which city depends on
+// the plate: Etash runs on AS01 plates in Guwahati, Eco Mobility on HR55 plates
+// out of Kapashera in Delhi.
 const PLACES = [
-  "Beltola Main Rd, Guwahati, Assam 781028",
   "GS Rd, Six Mile, Guwahati, Assam 781022",
+  "Azara, NH17, Guwahati, Assam 781017",
   "Zoo Road Tiniali, Guwahati, Assam 781024",
   "Paltan Bazaar, Guwahati, Assam 781008",
   "Maligaon Chariali, Guwahati, Assam 781011",
   "Khanapara, NH27, Guwahati, Assam 781022",
   "Ganeshguri Flyover, Guwahati, Assam 781006",
   "Lokhra Rd, Lalganesh, Guwahati, Assam 781034",
+];
+
+const DELHI_PLACES = [
+  "Kapashera Border, New Delhi 110037",
+  "Bijwasan Rd, New Delhi 110061",
+  "Dwarka Sector 21, New Delhi 110077",
+  "Aerocity, NH48, New Delhi 110037",
+  "Samalkha, New Delhi 110037",
+  "Rajokri Flyover, New Delhi 110038",
+  "Udyog Vihar Phase V, Gurugram, Haryana 122016",
+  "Mahipalpur Extension, New Delhi 110037",
 ];
 
 function hashId(id: string): number {
@@ -39,8 +52,9 @@ function hashId(id: string): number {
 
 export function tripAddresses(trip: Trip): { startAddress: string; endAddress: string } {
   const h = hashId(trip.id);
-  const start = PLACES[h % PLACES.length];
-  const end = PLACES[(h + 3) % PLACES.length];
+  const places = /^HR/i.test(trip.vehicleReg ?? "") ? DELHI_PLACES : PLACES;
+  const start = places[h % places.length];
+  const end = places[(h + 3) % places.length];
   return { startAddress: start, endAddress: end };
 }
 

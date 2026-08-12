@@ -126,7 +126,7 @@ export default function AddVehicleModal({
   };
 
   const onFinish = (values: VehicleFormValues) => {
-    const hub = db.vehicles[0]?.hub ?? "Beltola Hub";
+    const hub = db.vehicles[0]?.hub ?? "Six Mile";
     const lat = db.vehicles[0]?.lat ?? 26.12;
     const lng = db.vehicles[0]?.lng ?? 91.79;
     createRow("vehicles", {

@@ -294,9 +294,9 @@ export default function ChargingPlanCard({
             />
             {optimize ? (
               cap === null ? (
-                <Tooltip title="No SoC cap has been published for this vehicle yet — its current cap is kept until one is.">
+                <Tooltip title="No SoC cap has been published for this vehicle yet, so the optimizer charges to the vehicle's own smart charge limit.">
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    no suggestion yet · {Math.round(v.socCapPct)}%
+                    From EV smart charge limit · {Math.round(v.socCapPct)}%
                   </Text>
                 </Tooltip>
               ) : (

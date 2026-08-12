@@ -30,9 +30,42 @@ function mulberry32(seed: number) {
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// The two customer fleets the demo is built around, replicated from their real
+// setup: Etash Delivery Technologies runs out of Six Mile and Azara in
+// Guwahati, Eco Mobility out of Kapashera in Delhi. Names, coordinates, charger
+// inventory and fleet composition mirror production; every telemetry value
+// below (SoC, odometer, trips, sessions, IMEIs) is dummy.
 const HUBS = [
-  { name: "Beltola Hub", lat: 26.1158, lng: 91.789, address: "Beltola Main Rd, Guwahati, Assam 781028" },
-  { name: "Six Mile Depot", lat: 26.1284, lng: 91.8034, address: "GS Rd, Six Mile, Guwahati, Assam 781022" },
+  {
+    name: "Six Mile",
+    lat: 26.1299,
+    lng: 91.8092,
+    address: "GS Rd, Six Mile, Guwahati, Assam 781022",
+    city: "Guwahati",
+    state: "Assam",
+    pins: ["781022", "781006", "781038"],
+    localities: ["Six Mile", "Hatigaon Rd", "Ganeshguri", "Dispur Last Gate"],
+  },
+  {
+    name: "Azara",
+    lat: 26.1286,
+    lng: 91.6217,
+    address: "Azara, Guwahati, Assam 781017",
+    city: "Guwahati",
+    state: "Assam",
+    pins: ["781017", "781015"],
+    localities: ["Azara", "Dharapur", "Garal Gaon"],
+  },
+  {
+    name: "Kapashera",
+    lat: 28.5225,
+    lng: 77.0405,
+    address: "Kapashera, New Delhi 110037",
+    city: "New Delhi",
+    state: "Delhi",
+    pins: ["110037", "110097"],
+    localities: ["Kapashera", "Bijwasan", "Samalkha"],
+  },
 ];
 
 const DRIVER_NAMES = [
@@ -41,13 +74,31 @@ const DRIVER_NAMES = [
   "Dipak Boro",
   "Manoj Sharma",
   "Bikash Deka",
+  "Hemanta Nath",
+  "Jitu Rabha",
+  "Simanta Baruah",
+  "Naresh Yadav",
+  "Sunil Kumar",
 ];
 
-const MAKES = [
-  { make: "Mahindra", model: "Treo Zor", category: "3W Cargo" as const, batteryKwh: 8, imeiBase: 861100066 },
-  { make: "Piaggio", model: "Ape E-City", category: "3W Passenger" as const, batteryKwh: 7.5, imeiBase: 861100077 },
-  { make: "Euler", model: "HiLoad EV", category: "3W Cargo" as const, batteryKwh: 12.4, imeiBase: 861100088 },
-  { make: "OSM", model: "Rage+ Frost", category: "3W Cargo" as const, batteryKwh: 10.8, imeiBase: 861100099 },
+// Etash's Piaggio/Mahindra 3W cargo fleet and Eco Mobility's MG cars, with the
+// battery sizes and SoC caps their real records carry.
+const FLEET = [
+  { reg: "AS01NC4701", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "AS01PC2313", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "AS01QC4734", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "353691840" },
+  { reg: "AS01SC0339", make: "Mahindra Electric Mobility Ltd", model: "ZOR grand DV", category: "3W Cargo" as const, batteryKwh: 10.24, socCapPct: 90, hub: 0, imeiPrefix: "353691841" },
+  { reg: "AS01SC7409", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "AS01SC7432", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 1, imeiPrefix: "350317175" },
+  { reg: "AS01SC7438", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 85, hub: 1, imeiPrefix: "350317175" },
+  { reg: "AS01SC7492", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 1, imeiPrefix: "350544507" },
+  { reg: "AS01SC7619", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "AS01TC1046", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "AS01TC1083", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "AS01TC1084", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "HR55AX9090", make: "MG", model: "ZS EV EXECUTIVE", category: "4W" as const, batteryKwh: 50, socCapPct: 100, hub: 2, imeiPrefix: "353691844" },
+  { reg: "HR55AX1925", make: "MG", model: "ZS EV EXECUTIVE", category: "4W" as const, batteryKwh: 50, socCapPct: 100, hub: 2, imeiPrefix: "353691844" },
+  { reg: "HR55AX1290", make: "MG", model: "ZS EV EXECUTIVE", category: "4W" as const, batteryKwh: 50, socCapPct: 100, hub: 2, imeiPrefix: "353691844" },
 ];
 
 export function makeFixtures(now = dayjs()): Db {
@@ -57,42 +108,38 @@ export function makeFixtures(now = dayjs()): Db {
   const int = (lo: number, hi: number) => Math.floor(between(lo, hi + 1));
 
   // ---- chargepoints -------------------------------------------------------
-  // Modeled on the real fleet's chargers: slow 3.3 kW single-connector EVRE
-  // AC units ("CP-1, Six Mile" naming), 3-pin sockets, no smart chargers.
+  // The real inventory: EVRE AC001 units share 10 kW across three 3-pin sockets
+  // (~3.3 kW per port) and the HALO is a single 3 kW socket. Azara's unit is
+  // enabled but every socket reads Faulted — the electrical work there is still
+  // pending, which is what feeds the charger-warnings page.
   const chargepoints: Chargepoint[] = [];
-  const cpModels = [
-    { model: "AC001", vendor: "EVRE", powerKw: 3, type: "3PIN" as const },
-    { model: "HALO", vendor: "EVRE", powerKw: 3, type: "3PIN" as const },
-  ];
-  // One charger per hub: Beltola's has 3 connectors (one faulted — feeds the
-  // charger-warnings feed), Six Mile keeps a single-connector unit.
   const cpSpecs = [
-    { hub: HUBS[0], connectorCount: 3, faultedConnectorId: 3 },
-    { hub: HUBS[1], connectorCount: 1, faultedConnectorId: null },
+    { hub: 0, name: "CP-1, Six Mile", model: "AC001", connectorCount: 3, powerKw: 3.3, allFaulted: false },
+    { hub: 0, name: "CP-2, Six Mile", model: "HALO", connectorCount: 1, powerKw: 3, allFaulted: false },
+    { hub: 0, name: "CP-3, Six Mile", model: "AC001", connectorCount: 3, powerKw: 3.3, allFaulted: false },
+    { hub: 1, name: "CP-1, Azara", model: "AC001", connectorCount: 3, powerKw: 3.3, allFaulted: true },
+    { hub: 2, name: "CP-1, Kapashera", model: "AC001", connectorCount: 1, powerKw: 3.3, allFaulted: false },
+    { hub: 2, name: "CP-2, Kapashera", model: "AC001", connectorCount: 1, powerKw: 3.3, allFaulted: false },
   ];
   cpSpecs.forEach((spec, i) => {
-    const place = spec.hub.name.replace(/ (Hub|Depot)$/, "");
-    const m = cpModels[i % cpModels.length];
+    const hub = HUBS[spec.hub];
     chargepoints.push({
       id: `CP-${String(i + 1).padStart(3, "0")}`,
-      name: `CP-1, ${place}`,
-      hub: spec.hub.name,
+      name: spec.name,
+      hub: hub.name,
       serial: `ERG${2024000 + (i + 1) * 17}`,
-      model: m.model,
-      vendor: m.vendor,
+      model: spec.model,
+      vendor: "EVRE",
       status: "Online",
       connectors: Array.from({ length: spec.connectorCount }, (_, ci) => ({
         id: ci + 1,
-        type: m.type,
-        powerKw: m.powerKw,
-        status:
-          ci + 1 === spec.faultedConnectorId
-            ? ("Faulted" as const)
-            : ("Available" as const),
+        type: "3PIN" as const,
+        powerKw: spec.powerKw,
+        status: spec.allFaulted ? ("Faulted" as const) : ("Available" as const),
       })),
-      address: spec.hub.address,
-      lat: round2(spec.hub.lat + between(-0.002, 0.002)),
-      lng: round2(spec.hub.lng + between(-0.002, 0.002)),
+      address: hub.address,
+      lat: round2(hub.lat + between(-0.002, 0.002)),
+      lng: round2(hub.lng + between(-0.002, 0.002)),
       tariffPerKwh: 9.5,
       createdAt: now.subtract(int(200, 400), "day").toISOString(),
     });
@@ -101,15 +148,12 @@ export function makeFixtures(now = dayjs()): Db {
   // ---- vehicles + drivers -------------------------------------------------
   const vehicles: Vehicle[] = [];
   const drivers: Driver[] = [];
-  // Home hub per vehicle, as an index into HUBS. Deliberately not `i % 2`:
-  // the second vehicle (…0307) is the one plugged into the Beltola charger by
-  // the live session below, so it has to live at Beltola. …0300 takes its
-  // place at Six Mile, keeping three vehicles at each hub.
-  const VEHICLE_HUB_IDX = [1, 0, 0, 1, 0, 1];
-  for (let i = 0; i < 6; i += 1) {
-    const spec = MAKES[i % MAKES.length];
-    const hub = HUBS[VEHICLE_HUB_IDX[i % VEHICLE_HUB_IDX.length]];
-    const reg = `AS01SC${String(300 + i * 7).padStart(4, "0")}`;
+  // Plates, makes, battery sizes, SoC caps and home hubs come from the two real
+  // fleets; SoC, odometer, IMEI and the driver roster are generated. Not every
+  // vehicle has a driver — the rest read as "vehicle is not used", exactly as
+  // production does when nobody has checked in.
+  FLEET.forEach((spec, i) => {
+    const hub = HUBS[spec.hub];
     const driver = i < DRIVER_NAMES.length ? DRIVER_NAMES[i] : null;
     // Never seed "Charging" here — that status is derived from whether the
     // vehicle actually has a live session, so a stored flag would drift out of
@@ -117,39 +161,40 @@ export function makeFixtures(now = dayjs()): Db {
     const status = pick(["Idle", "Idle", "Driving", "Driving", "Idle", "Idle"] as const);
     vehicles.push({
       id: `veh-${i + 1}`,
-      reg,
+      reg: spec.reg,
       make: spec.make,
       model: spec.model,
       category: spec.category,
       batteryKwh: spec.batteryKwh,
       soc: int(18, 96),
-      socCapPct: pick([80, 85, 90, 100, 100]),
+      socCapPct: spec.socCapPct,
       status,
       odometerKm: int(4000, 26000),
       driverId: driver ? `drv-${i + 1}` : null,
       hub: hub.name,
       lat: round2(hub.lat + between(-0.03, 0.03)),
       lng: round2(hub.lng + between(-0.03, 0.03)),
-      imei: String(spec.imeiBase * 10000 + int(1000, 9999)),
+      imei: `${spec.imeiPrefix}${int(100000, 999999)}`,
       createdAt: now.subtract(int(120, 400), "day").toISOString(),
     });
     if (driver) {
+      const rto = hub.state === "Delhi" ? "DL" : "AS01";
       drivers.push({
         id: `drv-${i + 1}`,
         name: driver,
         phone: `+91 98${int(10000000, 99999999)}`,
         email: `${driver.toLowerCase().replace(" ", ".")}@erglocale.com`,
-        licenseNo: `AS01 ${int(2015, 2023)}00${int(10000, 99999)}`,
-        vehicleReg: reg,
+        licenseNo: `${rto} ${int(2015, 2023)}00${int(10000, 99999)}`,
+        vehicleReg: spec.reg,
         status: i === 4 ? "Inactive" : "Active",
         joinedAt: now.subtract(int(100, 500), "day").toISOString(),
-        address: `House ${int(2, 88)}, ${pick(["Beltola Tiniali", "Six Mile", "Hatigaon Rd", "Ganeshguri", "Dispur Last Gate"])}`,
-        city: "Guwahati",
-        state: "Assam",
-        pin: pick(["781028", "781022", "781038", "781006"]),
+        address: `House ${int(2, 88)}, ${pick(hub.localities)}`,
+        city: hub.city,
+        state: hub.state,
+        pin: pick(hub.pins),
       });
     }
-  }
+  });
 
   // ---- trips (last 14 days) ----------------------------------------------
   const trips: Trip[] = [];
@@ -196,18 +241,22 @@ export function makeFixtures(now = dayjs()): Db {
   const usableCps = chargepoints.filter(
     (c) => c.status === "Online" && c.connectors.some((cn) => cn.status === "Available"),
   );
-  // Older history may sit on any online charger and any connector (the fault
-  // is recent); current sessions stick to available connectors.
   const onlineCps = chargepoints.filter((c) => c.status === "Online");
   const availableConnector = (c: Chargepoint) =>
     pick(c.connectors.filter((cn) => cn.status === "Available"));
+  // A vehicle only ever plugs in at its own hub — the two fleets are 1,800 km
+  // apart. Azara has no usable socket (the electrical work is still pending),
+  // so its vans have no charging history at all, which is the real situation.
+  const cpsAtHub = (list: Chargepoint[], hub: string) => list.filter((c) => c.hub === hub);
   for (let d = 14; d >= 0; d -= 1) {
     const day = now.subtract(d, "day");
     for (const v of vehicles) {
       if (rand() < 0.45) continue;
+      const candidates = cpsAtHub(usableCps, v.hub);
+      if (!candidates.length) continue;
       sesId += 1;
-      const cp = pick(d >= 2 ? onlineCps : usableCps);
-      const connector = d >= 2 ? pick(cp.connectors) : availableConnector(cp);
+      const cp = pick(candidates);
+      const connector = availableConnector(cp);
       const start = day.hour(pick([20, 21, 22, 13])).minute(int(0, 59));
       // Never fabricate sessions that haven't started yet — a "tonight 8 pm"
       // slot on day 0 would otherwise appear as a future ongoing session.
@@ -249,9 +298,11 @@ export function makeFixtures(now = dayjs()): Db {
   // placed first (25 min / ~2 h ago), then the start is derived from duration.
   const recentEndMinsAgo = [() => int(25, 75), () => int(110, 200)];
   for (const cp of onlineCps) {
+    const hubVehicles = vehicles.filter((veh) => veh.hub === cp.hub);
+    if (!hubVehicles.length || !cp.connectors.some((cn) => cn.status === "Available")) continue;
     for (const endMinsAgo of recentEndMinsAgo) {
       sesId += 1;
-      const v = pick(vehicles);
+      const v = pick(hubVehicles);
       const connector = availableConnector(cp);
       const energy = round2(between(0.6, 3.5));
       const durMin = Math.round((energy / connector.powerKw) * 60) + int(8, 25);
@@ -517,7 +568,11 @@ export function makeFixtures(now = dayjs()): Db {
     { title: "Battery health check", taskType: "OEM_SERVICE", isRecurring: true, intervalKm: null, intervalMonths: 12 },
     { title: "Wheel alignment", taskType: "FLEET_TASK", isRecurring: false, intervalKm: null, intervalMonths: null },
   ];
+  // Service vendors follow the vehicle's city — Guwahati for Etash's 3Ws,
+  // Delhi/NCR for Eco Mobility's cars.
   const VENDORS = ["Sai Motors", "Kamakhya Auto Works", "GS Road Service Centre", "EV Care Guwahati"];
+  const NCR_VENDORS = ["MG Service Gurugram", "Kapashera Auto Care", "Dwarka EV Workshop"];
+  const vendorFor = (v: Vehicle) => pick(v.reg.startsWith("HR") ? NCR_VENDORS : VENDORS);
   let taskIdx = 0;
   let recordIdx = 0;
   for (let i = 0; i < 9; i += 1) {
@@ -554,7 +609,7 @@ export function makeFixtures(now = dayjs()): Db {
         serviceDate: now.subtract(daysAgo, "day").format("YYYY-MM-DD"),
         odometerKm: Math.max(500, v.odometerKm - int(800, 6000)),
         cost: int(4, 60) * 100,
-        vendor: pick(VENDORS),
+        vendor: vendorFor(v),
         notes: pick(["", "", "Replaced worn parts", "Routine check, all OK", "Minor adjustment done"]) || null,
       });
     }

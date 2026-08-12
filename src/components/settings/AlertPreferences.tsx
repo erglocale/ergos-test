@@ -22,6 +22,7 @@ import type { TableProps } from "antd";
 import { useState } from "react";
 import { useDb } from "@/data/store";
 import type { PortalUser } from "@/data/types";
+import { ALERT_TYPE_GROUPS, getAlertTypeLabel } from "./alertTypes";
 
 const { Title, Text } = Typography;
 
@@ -44,26 +45,6 @@ const DEFAULT_PREFS: Prefs = {
   phone_override: null,
   disabled_alert_types: [],
 };
-
-// Alert-type groups mirroring utils/alertTypes.js, trimmed to the alert types
-// present in the sandbox fixtures.
-const ALERT_TYPE_GROUPS = [
-  {
-    id: "battery",
-    label: "Battery",
-    types: ["Low SOC", "Charging interrupted", "Charging complete"],
-  },
-  {
-    id: "chargers",
-    label: "Chargers",
-    types: ["Charger fault"],
-  },
-  {
-    id: "fleet",
-    label: "Fleet",
-    types: ["Idle vehicle", "Offline device", "New suggestion"],
-  },
-];
 
 function getDisplayName(member: PortalUser): string {
   return member.name || member.email || "User";
@@ -377,7 +358,7 @@ export default function AlertPreferences() {
                             }}
                           >
                             <Switch size="small" checked={enabled} />
-                            <Text className="text-sm">{type}</Text>
+                            <Text className="text-sm">{getAlertTypeLabel(type)}</Text>
                           </label>
                         );
                       })}
