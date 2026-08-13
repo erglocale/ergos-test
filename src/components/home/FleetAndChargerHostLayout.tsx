@@ -252,7 +252,11 @@ export default function FleetAndChargerHostLayout() {
         return {
           id: v.id,
           licensePlate: v.reg,
-          model: `${v.make} ${v.model}`,
+          // Model only for the fixture fleet — the manufacturer's legal name
+          // ("Piaggio Vehicles Pvt Ltd", "Mahindra Electric Mobility Ltd")
+          // crowds the card out and the model already identifies the vehicle.
+          // energy-brain names its own vehicles and those are left alone.
+          model: isEnergyBrainVehicle(v.id) ? `${v.make} ${v.model}` : v.model,
           batteryLevel: v.soc,
           isCharging: v.status === "Charging",
           isRunning: v.status === "Driving",

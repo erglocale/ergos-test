@@ -45,7 +45,7 @@ export default function Alerts() {
             key: "2",
             label: (
               <span>
-                Charger Warnings
+                Charger Alerts
                 <Badge
                   count={chargerWarningsCount || 0}
                   overflowCount={99}

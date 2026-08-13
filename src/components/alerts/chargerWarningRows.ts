@@ -11,7 +11,12 @@ import type { Chargepoint, ChargerWarning, ChargingSession } from "@/data/types"
 
 export type WarnSeverity = "Critical" | "Warning" | "Predicted";
 export type WarnStatus = "Active" | "Watching" | "Resolved";
-export type WarnType = "Connector faulted" | "Communication lost" | "Predicted fault";
+export type WarnType =
+  | "Connector faulted"
+  | "Communication lost"
+  | "Session interrupted"
+  | "Throughput degraded"
+  | "Predicted fault";
 
 export interface ChargerWarningRow {
   id: string;
@@ -45,6 +50,8 @@ export const SEVERITY_DOT_COLOR: Record<WarnSeverity, string> = {
 export const TYPE_BAR_COLOR: Record<WarnType, string> = {
   "Connector faulted": "#ef4444",
   "Communication lost": "#f59e0b",
+  "Session interrupted": "#e24b4a",
+  "Throughput degraded": "#ef9f27",
   "Predicted fault": "#3b82f6",
 };
 
@@ -119,24 +126,106 @@ export function buildChargerWarningRows(
     });
   }
 
-  // Predicted faults, one per charger that shows a wear pattern.
-  for (const cp of chargepoints) {
-    const { prediction } = deriveChargerHealth(cp, sessions, warnings, nowMs);
-    if (!prediction) continue;
-    rows.push({
-      id: `PRED-${cp.id}`,
-      chargerId: cp.id,
-      chargerName: cp.name,
-      hub: cp.hub,
-      address: cp.address,
-      severity: "Predicted",
-      type: "Predicted fault",
-      details: `Connector ${prediction.connectorId} lock degrading. Failure likely within 5 days.`,
-      code: `${prediction.occurrences} ConnectorLockFailure in ${prediction.windowDays}d on the same connector`,
-      action: `Schedule a physical inspection of connector ${prediction.connectorId}'s latch before it fails.`,
-      triggeredAt: prediction.lastAt,
-      status: "Watching",
-    });
+  // Everything else the health model already knows about each charger, so the
+  // page reports the faults a site actually deals with — a session cut short,
+  // a unit delivering well under its rating — and not only the two states that
+  // can be read off the charger's current status.
+  const RECENT_FAULT_DAYS = 10;
+
+  const healthByCharger = chargepoints.map(
+    (cp) => [cp, deriveChargerHealth(cp, sessions, warnings, nowMs)] as const,
+  );
+
+  // Throughput is judged against the rest of the fleet, not against the
+  // nameplate. These are 3.3 kW AC units doing small top-ups, so every one of
+  // them averages well under its rating and an absolute floor would flag the
+  // lot — which tells a site nothing. What is worth a row is a charger
+  // delivering materially less than its neighbours on the same duty.
+  const ratios = healthByCharger
+    .filter(([, h]) => h.ratedKw > 0 && h.sessions7d > 0)
+    .map(([, h]) => h.actualKw / h.ratedKw)
+    .sort((a, b) => a - b);
+  const medianRatio = ratios.length
+    ? ratios[Math.floor((ratios.length - 1) / 2)]
+    : 0;
+  const throughputFloor = medianRatio * 0.85;
+
+  for (const [cp, health] of healthByCharger) {
+    const { prediction } = health;
+
+    // Predicted fault, for a charger showing a wear pattern.
+    if (prediction) {
+      rows.push({
+        id: `PRED-${cp.id}`,
+        chargerId: cp.id,
+        chargerName: cp.name,
+        hub: cp.hub,
+        address: cp.address,
+        severity: "Predicted",
+        type: "Predicted fault",
+        details: `Connector ${prediction.connectorId} lock degrading. Failure likely within 5 days.`,
+        code: `${prediction.occurrences} ConnectorLockFailure in ${prediction.windowDays}d on the same connector`,
+        action: `Schedule a physical inspection of connector ${prediction.connectorId}'s latch before it fails.`,
+        triggeredAt: prediction.lastAt,
+        status: "Watching",
+      });
+    }
+
+    // The most recent session-ending fault from the charger's own error log.
+    // Only lock failures: an offline unit and a faulted connector already have
+    // rows above from the warnings feed, and repeating them here would count
+    // one fault twice.
+    const cutoff = nowMs - RECENT_FAULT_DAYS * 86_400_000;
+    const interrupted = health.errors.find(
+      (e) =>
+        e.severity === "session-ending" &&
+        e.code.startsWith("ConnectorLockFailure") &&
+        dayjs(e.at).valueOf() >= cutoff,
+    );
+    if (interrupted) {
+      rows.push({
+        id: `ERR-${interrupted.id}`,
+        chargerId: cp.id,
+        chargerName: cp.name,
+        hub: cp.hub,
+        address: cp.address,
+        severity: "Critical",
+        type: "Session interrupted",
+        details: `${interrupted.title}. The vehicle left on a part charge.`,
+        code: `${interrupted.code}${
+          interrupted.connectorId ? ` · Conn ${interrupted.connectorId}` : ""
+        }`,
+        action: interrupted.action,
+        triggeredAt: interrupted.at,
+        status: "Active",
+      });
+    }
+
+    // A unit that is up but not delivering what it is rated for — cabling or
+    // supply, and invisible on a status page.
+    if (health.ratedKw > 0 && health.sessions7d > 0 && throughputFloor > 0) {
+      const ratio = health.actualKw / health.ratedKw;
+      if (ratio < throughputFloor) {
+        rows.push({
+          id: `THRU-${cp.id}`,
+          chargerId: cp.id,
+          chargerName: cp.name,
+          hub: cp.hub,
+          address: cp.address,
+          severity: "Warning",
+          type: "Throughput degraded",
+          details:
+            `Throughput at ${Math.round(ratio * 100)}% of rated capacity over a 7-day ` +
+            `window — ${Math.round((1 - ratio / medianRatio) * 100)}% below the rest of the fleet.`,
+          code: `Avg ${health.actualKw.toFixed(1)} kW on ${health.ratedKw.toFixed(1)} kW rated`,
+          action: "Check input supply voltage and cable condition at site.",
+          // Measured over the trailing week, so it is dated to the start of it
+          // rather than to an instant.
+          triggeredAt: dayjs(nowMs).subtract(7, "day").hour(12).minute(0).toISOString(),
+          status: "Active",
+        });
+      }
+    }
   }
 
   return rows.sort((a, b) => dayjs(b.triggeredAt).valueOf() - dayjs(a.triggeredAt).valueOf());

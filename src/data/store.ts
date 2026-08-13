@@ -17,7 +17,8 @@ import type { CollectionKey, Db, Profile } from "./types";
 // All demo data lives in localStorage under this key. CRUD mutates it in
 // place and notifies subscribers; "Reset demo data" just deletes the key.
 // v18: Azara carries charging history up to the day its sockets faulted.
-const DB_KEY = "ergos-test:db:v18";
+// v19: a faulted socket on CP-1 Six Mile, plus past charger warnings.
+const DB_KEY = "ergos-test:db:v19";
 
 let cache: Db | null = null;
 // Live rows from energy-brain, merged (not persisted) on top of the fixtures.

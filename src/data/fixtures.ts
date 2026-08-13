@@ -112,9 +112,12 @@ export function makeFixtures(now = dayjs()): Db {
   // (~3.3 kW per port) and the HALO is a single 3 kW socket. Azara's unit is
   // enabled but every socket reads Faulted — the electrical work there is still
   // pending, which is what feeds the charger-warnings page.
+  // `faulted` lists individual dead sockets on an otherwise working unit — one
+  // of CP-1 Six Mile's three is out, which is the ordinary case a hub deals
+  // with and the second live row on the charger alerts page.
   const chargepoints: Chargepoint[] = [];
   const cpSpecs = [
-    { hub: 0, name: "CP-1, Six Mile", model: "AC001", connectorCount: 3, powerKw: 3.3, allFaulted: false },
+    { hub: 0, name: "CP-1, Six Mile", model: "AC001", connectorCount: 3, powerKw: 3.3, allFaulted: false, faulted: [3] },
     { hub: 0, name: "CP-2, Six Mile", model: "HALO", connectorCount: 1, powerKw: 3, allFaulted: false },
     { hub: 0, name: "CP-3, Six Mile", model: "AC001", connectorCount: 3, powerKw: 3.3, allFaulted: false },
     { hub: 1, name: "CP-1, Azara", model: "AC001", connectorCount: 3, powerKw: 3.3, allFaulted: true },
@@ -135,7 +138,10 @@ export function makeFixtures(now = dayjs()): Db {
         id: ci + 1,
         type: "3PIN" as const,
         powerKw: spec.powerKw,
-        status: spec.allFaulted ? ("Faulted" as const) : ("Available" as const),
+        status:
+          spec.allFaulted || spec.faulted?.includes(ci + 1)
+            ? ("Faulted" as const)
+            : ("Available" as const),
       })),
       address: hub.address,
       lat: round2(hub.lat + between(-0.002, 0.002)),
@@ -574,6 +580,59 @@ export function makeFixtures(now = dayjs()): Db {
         },
       });
     }
+  }
+
+  // Warnings the fleet has already been through. Only what is wrong *now* can
+  // be derived from charger state, and a page showing nothing but that reads
+  // as a site with two permanent faults rather than one that gets a dropout or
+  // a sticky socket every few days and clears it. Dates sit inside the page's
+  // default ten-day window; statuses cover Resolved and Watching so the
+  // filters have something to filter.
+  const pastWarnings: {
+    cpName: string;
+    type: "ChargerOffline" | "ConnectorFaulted";
+    status: "Fixed" | "Ignore";
+    daysAgo: number;
+    hourOfDay: number;
+    connectorId?: number;
+    offlineForHours?: number;
+  }[] = [
+    // Network dropout at Six Mile that came back on its own.
+    { cpName: "CP-2, Six Mile", type: "ChargerOffline", status: "Fixed", daysAgo: 6, hourOfDay: 6, offlineForHours: 2 },
+    // Kapashera lost its uplink for most of a working day.
+    { cpName: "CP-1, Kapashera", type: "ChargerOffline", status: "Fixed", daysAgo: 4, hourOfDay: 9, offlineForHours: 9 },
+    // A socket that faulted and recovered — worth watching, not dispatching.
+    { cpName: "CP-2, Kapashera", type: "ConnectorFaulted", status: "Fixed", daysAgo: 3, hourOfDay: 21, connectorId: 1 },
+    // Known intermittent latch on CP-3, being monitored rather than swapped.
+    { cpName: "CP-3, Six Mile", type: "ConnectorFaulted", status: "Ignore", daysAgo: 2, hourOfDay: 15, connectorId: 2 },
+  ];
+  for (const w of pastWarnings) {
+    const cp = chargepoints.find((c) => c.name === w.cpName);
+    if (!cp) continue;
+    const at = now.subtract(w.daysAgo, "day").hour(w.hourOfDay).minute(int(0, 59));
+    chargerWarnings.push({
+      id: `cw-${chargerWarnings.length + 1}`,
+      charger: { id: cp.id, name: cp.name, hub: cp.hub },
+      connector:
+        w.type === "ConnectorFaulted"
+          ? {
+              connectorId: w.connectorId ?? 1,
+              status: "Faulted",
+              updatedAt: at.toISOString(),
+            }
+          : null,
+      warningObject: {
+        type: w.type,
+        status: w.status,
+        createdAt: at.toISOString(),
+        offlineForHours: w.offlineForHours ?? null,
+        lastChecked: w.type === "ChargerOffline" ? at.toISOString() : null,
+        resolution:
+          w.type === "ChargerOffline"
+            ? "Check the charger's power supply and network connection, then power-cycle it."
+            : "Unplug any vehicle, then reset the connector from the charger controls.",
+      },
+    });
   }
 
   // ---- portal users + wallets --------------------------------------------
