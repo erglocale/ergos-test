@@ -388,7 +388,9 @@ function LocationBreakdown({ hubAnalytics }: { hubAnalytics: HubRow[] }) {
   let paletteIdx = 0;
   const rows = hubAnalytics.map((h) => {
     const name = h.hubName || "Outside Hub";
-    const outside = isOutside(h.hubName);
+    // Idle sites keep their place in the list but not a palette colour — the
+    // bar would read as activity when there was none.
+    const outside = isOutside(h.hubName) || h.sessionCount === 0;
     const color = outside ? BRAND.textMuted : palette[paletteIdx++ % palette.length];
     return {
       name,
@@ -519,7 +521,13 @@ export default function SessionsAnalytics() {
   );
 
   const hubAnalytics = useMemo<HubRow[]>(() => {
+    // Every hub that has a charger starts at zero, so a site that drew nothing
+    // in the window (Azara, whose sockets are still faulted) is reported as an
+    // idle site rather than quietly dropping off the list.
     const map = new Map<string, HubRow>();
+    for (const cp of db.chargepoints) {
+      if (!map.has(cp.hub)) map.set(cp.hub, { hubName: cp.hub, totalKwh: 0, sessionCount: 0 });
+    }
     for (const s of sessionsInRange) {
       const hubName = hubForSession(s, db.chargepoints);
       const row = map.get(hubName) ?? { hubName, totalKwh: 0, sessionCount: 0 };
@@ -529,6 +537,8 @@ export default function SessionsAnalytics() {
     }
     return [...map.values()].sort((a, b) => b.totalKwh - a.totalKwh);
   }, [sessionsInRange, db.chargepoints]);
+
+  const activeHubCount = hubAnalytics.filter((h) => h.sessionCount > 0).length;
 
   const metricConfig = {
     kwh: {
@@ -583,8 +593,8 @@ export default function SessionsAnalytics() {
         />
         <SummaryCard
           label="Charging Locations"
-          value={hubAnalytics.length}
-          sub={hubAnalytics.length === 1 ? "location" : "locations"}
+          value={activeHubCount}
+          sub={`active of ${hubAnalytics.length} hub${hubAnalytics.length === 1 ? "" : "s"}`}
         />
       </div>
 

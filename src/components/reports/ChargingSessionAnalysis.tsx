@@ -1,7 +1,15 @@
 "use client";
 
 import { DownloadOutlined } from "@ant-design/icons";
-import { Alert, Button, DatePicker, InputNumber, Space, Typography } from "antd";
+import {
+  Alert,
+  Button,
+  DatePicker,
+  InputNumber,
+  Segmented,
+  Space,
+  Typography,
+} from "antd";
 import dayjs from "dayjs";
 import { useMemo, useState } from "react";
 import ChargerLocationMap, {
@@ -19,6 +27,14 @@ import {
   SECTION_CARD,
 } from "./shared";
 import { DATE_FORMAT } from "@/lib/dateFormat";
+import {
+  fromInr,
+  money2,
+  setUnitSystem,
+  toInr,
+  useUnits,
+  type UnitConfig,
+} from "@/lib/units";
 
 const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
@@ -156,7 +172,8 @@ function MetricBlock({
   label: string;
   kwh: number;
   sessions: number;
-  cost: number;
+  /** Already formatted in the active currency. */
+  cost: string;
   pct?: number;
 }) {
   return (
@@ -237,11 +254,7 @@ function MetricBlock({
           {sessions} session{sessions === 1 ? "" : "s"}
         </span>
         <span style={{ fontSize: 14, fontWeight: 600, color: BRAND.textPrimary }}>
-          ₹
-          {cost.toLocaleString("en-IN", {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}
+          {cost}
         </span>
       </div>
     </div>
@@ -271,15 +284,26 @@ interface ReportParams {
 export default function ChargingSessionAnalysis() {
   const db = useDb();
   const vehicles = db.vehicles;
+  const units = useUnits();
 
   const [dateRange, setDateRange] = useState<DateRange>(DEFAULT_DATE_RANGE);
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>(() =>
     vehicles.map((v) => v.id),
   );
+  // Tariffs are held in ₹/kWh whatever the toggle says — the chargepoints
+  // quote them that way — and converted at the display boundary, so flipping
+  // the currency never rewrites the rate the report was run with.
   const [publicRate, setPublicRate] = useState(16);
   const [hubRate, setHubRate] = useState<number>(
     () => db.chargepoints[0]?.tariffPerKwh ?? 8.5,
   );
+
+  /** A rupee amount, printed in the active currency. */
+  const cash = (inr: number) => money2(fromInr(inr, units), units);
+  /** A ₹/kWh tariff shown in the active currency, at the input's precision. */
+  const rateIn = (inr: number) =>
+    units.currencyCode === "USD" ? Math.round(fromInr(inr, units) * 100) / 100 : inr;
+  const rateOut = (shown: number) => toInr(shown, units);
   const [modalOpen, setModalOpen] = useState(false);
   // Report generated on load with all vehicles + last 30 days (like the original).
   const [reportParams, setReportParams] = useState<ReportParams | null>(() => ({
@@ -354,7 +378,7 @@ export default function ChargingSessionAnalysis() {
         lng: cp.lng,
         color: HUB_COLOR,
         count: rows.length,
-        label: `${cp.name} — ${rows.length} hub session${rows.length === 1 ? "" : "s"} · ${kwh.toFixed(1)} kWh · ₹${(kwh * hubRate).toFixed(0)}`,
+        label: `${cp.name} — ${rows.length} hub session${rows.length === 1 ? "" : "s"} · ${kwh.toFixed(1)} kWh · ${money2(fromInr(kwh * hubRate, units), units)}`,
       });
     }
 
@@ -372,12 +396,12 @@ export default function ChargingSessionAnalysis() {
         lng,
         color: PUBLIC_COLOR,
         count: rows.length,
-        label: `${reg} — ${rows.length} public session${rows.length === 1 ? "" : "s"} · ${kwh.toFixed(1)} kWh · ₹${(kwh * publicRate).toFixed(0)}`,
+        label: `${reg} — ${rows.length} public session${rows.length === 1 ? "" : "s"} · ${kwh.toFixed(1)} kWh · ${money2(fromInr(kwh * publicRate, units), units)}`,
       });
     }
 
     return points;
-  }, [hubSessions, publicSessions, db.chargepoints, hubRate, publicRate]);
+  }, [hubSessions, publicSessions, db.chargepoints, hubRate, publicRate, units]);
 
   const totalKwh = hubTotals.totalKwh + publicTotals.totalKwh;
   const totalSessions = hubTotals.sessionCount + publicTotals.sessionCount;
@@ -398,14 +422,19 @@ export default function ChargingSessionAnalysis() {
     const startStr = formatReportDate(start);
     const endStr = formatReportDate(end);
 
+    // The export carries the currency the report is being read in, so a
+    // spreadsheet can never be mistaken for the other one's figures.
+    const cur = units.currencyCode;
+    const amount = (inr: number) => fromInr(inr, units).toFixed(2);
+
     const rows: (string | number)[][] = [];
     rows.push(["Charging Session Analysis Report"]);
     rows.push(["Period", `${startStr} to ${endStr}`]);
     rows.push(["Vehicles", selectedVehicleIds.length]);
     rows.push([]);
     rows.push(["Summary", "", ""]);
-    rows.push(["Hub rate (Rupees/kWh)", hubRate, ""]);
-    rows.push(["Public rate (Rupees/kWh)", publicRate, ""]);
+    rows.push([`Hub rate (${cur}/kWh)`, amount(hubRate), ""]);
+    rows.push([`Public rate (${cur}/kWh)`, amount(publicRate), ""]);
     rows.push(["Metric", "Hub", "Public"]);
     rows.push([
       "Energy (kWh)",
@@ -414,15 +443,15 @@ export default function ChargingSessionAnalysis() {
     ]);
     rows.push(["Sessions", hubTotals.sessionCount, publicTotals.sessionCount]);
     rows.push([
-      "Cost (Rupees)",
-      hubTotals.totalCost.toFixed(2),
-      publicTotals.totalCost.toFixed(2),
+      `Cost (${cur})`,
+      amount(hubTotals.totalCost),
+      amount(publicTotals.totalCost),
     ]);
     rows.push([]);
     rows.push(["Total Energy (kWh)", totalKwh.toFixed(2)]);
-    rows.push(["Total Cost (Rupees)", totalCost.toFixed(2)]);
+    rows.push([`Total Cost (${cur})`, amount(totalCost)]);
     if (potentialSavings > 0) {
-      rows.push(["Potential Savings (Rupees)", potentialSavings.toFixed(2)]);
+      rows.push([`Potential Savings (${cur})`, amount(potentialSavings)]);
     }
     rows.push([]);
     rows.push([
@@ -431,7 +460,7 @@ export default function ChargingSessionAnalysis() {
       "End time",
       "Energy (kWh)",
       "Type",
-      "Cost (Rupees)",
+      `Cost (${cur})`,
     ]);
 
     const sessionRows = [
@@ -460,7 +489,7 @@ export default function ChargingSessionAnalysis() {
         formatReportDate(end),
         kwh.toFixed(3),
         type,
-        cost.toFixed(2),
+        amount(cost),
       ]);
     });
 
@@ -503,30 +532,42 @@ export default function ChargingSessionAnalysis() {
             <Button onClick={() => setModalOpen(true)}>
               {`Select Vehicles (${selectedVehicleIds.length})`}
             </Button>
+            {/* Units follow the customer, not the build (demo spec item 9) —
+                the same switch the Cost per Distance report carries. */}
+            <Segmented
+              value={units.system}
+              onChange={(val) => setUnitSystem(val as UnitConfig["system"])}
+              options={[
+                { label: "₹ / kWh", value: "metric" },
+                { label: "$ / kWh", value: "imperial" },
+              ]}
+            />
             <Space>
               <Text style={{ color: BRAND.textSecondary }}>
-                Public rate (₹/kWh)
+                Public rate ({units.currencySymbol}/kWh)
               </Text>
               <InputNumber
                 min={0}
-                step={0.5}
-                value={publicRate}
+                step={units.currencyCode === "USD" ? 0.01 : 0.5}
+                value={rateIn(publicRate)}
                 onChange={(v) => {
                   const n = Number(v);
-                  setPublicRate(Number.isFinite(n) && n >= 0 ? n : 0);
+                  setPublicRate(Number.isFinite(n) && n >= 0 ? rateOut(n) : 0);
                 }}
                 style={{ width: 100 }}
               />
             </Space>
             <Space>
-              <Text style={{ color: BRAND.textSecondary }}>Hub rate (₹/kWh)</Text>
+              <Text style={{ color: BRAND.textSecondary }}>
+                Hub rate ({units.currencySymbol}/kWh)
+              </Text>
               <InputNumber
                 min={0}
-                step={0.5}
-                value={hubRate}
+                step={units.currencyCode === "USD" ? 0.01 : 0.5}
+                value={rateIn(hubRate)}
                 onChange={(v) => {
                   const n = Number(v);
-                  setHubRate(Number.isFinite(n) && n >= 0 ? n : 0);
+                  setHubRate(Number.isFinite(n) && n >= 0 ? rateOut(n) : 0);
                 }}
                 style={{ width: 100 }}
               />
@@ -573,11 +614,7 @@ export default function ChargingSessionAnalysis() {
                     · {totalSessions} session
                     {totalSessions === 1 ? "" : "s"} ·{" "}
                     <span style={{ color: BRAND.textPrimary, fontWeight: 600 }}>
-                      ₹
-                      {totalCost.toLocaleString("en-IN", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      {cash(totalCost)}
                     </span>
                   </span>
                 }
@@ -644,7 +681,7 @@ export default function ChargingSessionAnalysis() {
                     label="Hub Charging"
                     kwh={hubTotals.totalKwh}
                     sessions={hubTotals.sessionCount}
-                    cost={hubTotals.totalCost}
+                    cost={cash(hubTotals.totalCost)}
                     pct={hubPercentage}
                   />
                   <MetricBlock
@@ -652,7 +689,7 @@ export default function ChargingSessionAnalysis() {
                     label="Public Charging"
                     kwh={publicTotals.totalKwh}
                     sessions={publicTotals.sessionCount}
-                    cost={publicTotals.totalCost}
+                    cost={cash(publicTotals.totalCost)}
                     pct={publicPercentage}
                   />
                 </div>
@@ -694,11 +731,7 @@ export default function ChargingSessionAnalysis() {
                       lineHeight: 1.1,
                     }}
                   >
-                    ₹
-                    {potentialSavings.toLocaleString("en-IN", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
+                    {cash(potentialSavings)}
                   </div>
                 </div>
                 <div
@@ -711,8 +744,10 @@ export default function ChargingSessionAnalysis() {
                   }}
                 >
                   If {publicTotals.totalKwh.toFixed(1)} kWh had been charged at
-                  hub rate (₹{hubRate}/kWh) instead of public rate (₹
-                  {publicRate}/kWh).
+                  hub rate ({units.currencySymbol}
+                  {rateIn(hubRate)}/kWh) instead of public rate (
+                  {units.currencySymbol}
+                  {rateIn(publicRate)}/kWh).
                 </div>
               </div>
             )}

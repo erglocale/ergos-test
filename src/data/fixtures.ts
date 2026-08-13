@@ -293,6 +293,49 @@ export function makeFixtures(now = dayjs()): Db {
       });
     }
   }
+  // Azara's sockets read Faulted *now* — the warning it raises is hours old,
+  // not days — so the hub has history right up to the point they failed and
+  // nothing since. Without it the site reports zero sessions in every report,
+  // which reads as a hub nobody uses rather than one that just went down.
+  const azaraCp = chargepoints.find((c) => c.hub === HUBS[1].name);
+  if (azaraCp) {
+    const connector = azaraCp.connectors[0];
+    const azaraVehicles = vehicles.filter((v) => v.hub === azaraCp.hub);
+    // Stops at d = 2: the fault is at most 30 h old, so a session that ended
+    // two days ago is safely on the working side of it.
+    for (let d = 14; d >= 2; d -= 1) {
+      const day = now.subtract(d, "day");
+      for (const v of azaraVehicles) {
+        if (rand() < 0.4) continue;
+        sesId += 1;
+        const start = day.hour(pick([20, 21, 22, 13])).minute(int(0, 59));
+        const socStart = int(20, 65);
+        const maxEnergy = Math.min(4.5, ((v.socCapPct - socStart) / 100) * v.batteryKwh);
+        const energy = round2(between(0.4, Math.max(0.5, maxEnergy)));
+        const durMin = Math.round((energy / connector.powerKw) * 60) + int(8, 35);
+        sessions.push({
+          id: `CS-${String(sesId).padStart(5, "0")}`,
+          chargerId: azaraCp.id,
+          chargerName: azaraCp.name,
+          connectorId: connector.id,
+          vehicleReg: v.reg,
+          driverName: drivers.find((dr) => dr.vehicleReg === v.reg)?.name ?? "—",
+          startTime: start.toISOString(),
+          endTime: start.add(durMin, "minute").toISOString(),
+          energyKwh: energy,
+          socStart,
+          socEnd: Math.min(
+            v.socCapPct,
+            socStart + Math.round((energy / v.batteryKwh) * 100),
+          ),
+          cost: 0,
+          status: "Completed",
+          stopReason: pick(["EVDisconnected", "EVDisconnected", "Remote"]),
+        });
+      }
+    }
+  }
+
   // Completed sessions that ended shortly before now on every online charger,
   // so the schedule calendar shows recent history without scrolling. Ends are
   // placed first (25 min / ~2 h ago), then the start is derived from duration.

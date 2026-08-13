@@ -11,12 +11,12 @@ const { Title } = Typography;
 const TAB_ITEMS = [
   {
     key: "chargingSessionAnalysis",
-    label: "Charging Session Analysis",
+    label: "Charging Sessions",
     children: <ChargingSessionAnalysis />,
   },
   {
     key: "vehicleUtilization",
-    label: "Vehicle Utilization Analysis",
+    label: "Vehicle Utilization",
     children: <VehicleUtilizationAnalysis />,
   },
   {
@@ -26,7 +26,7 @@ const TAB_ITEMS = [
   },
   {
     key: "hubEnergy",
-    label: "Charging Hub Energy Report",
+    label: "Hub Energy",
     children: <HubEnergyReport />,
   },
 ];

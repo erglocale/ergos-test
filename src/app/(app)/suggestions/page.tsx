@@ -360,18 +360,8 @@ export default function Suggestions() {
     setSelected(null);
   };
 
+  // SOC Cap leads: it is the suggestion set the demo opens on.
   const tabs = [
-    {
-      key: "charging",
-      label: "Charging",
-      children: (
-        <ChargingTab
-          nudges={nudges}
-          loading={live && liveLoading}
-          onRowClick={(row) => setSelected({ ...row, kind: "charge" })}
-        />
-      ),
-    },
     {
       key: "cap",
       label: "SOC Cap",
@@ -381,6 +371,17 @@ export default function Suggestions() {
           loading={live && liveLoading}
           onRowClick={(row) => setSelected({ ...row, kind: "cap" })}
           onApply={applySuggestion}
+        />
+      ),
+    },
+    {
+      key: "charging",
+      label: "Charging",
+      children: (
+        <ChargingTab
+          nudges={nudges}
+          loading={live && liveLoading}
+          onRowClick={(row) => setSelected({ ...row, kind: "charge" })}
         />
       ),
     },
@@ -432,7 +433,7 @@ export default function Suggestions() {
       </div>
 
       <div style={{ marginTop: 8 }}>
-        <Tabs defaultActiveKey="charging" items={tabs} />
+        <Tabs defaultActiveKey="cap" items={tabs} />
       </div>
 
       <SuggestionDrawer

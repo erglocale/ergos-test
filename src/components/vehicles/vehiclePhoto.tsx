@@ -4,7 +4,13 @@
 // "BrightDrop 400 #0n" and one "E-Transit #01", so the catalogue matches on
 // make/model text (and the DEMO-BD/DEMO-ET plates as a fallback) rather than
 // on ids — that way it keeps working whichever layer supplies the vehicle.
-// Anything unmatched (the Indian 3W fixtures) keeps the old icon placeholder.
+//
+// Production resolves the same pictures from the shared EV catalogue
+// (getVehicleImageUrl → .../Vehicles/Electric/<repositoryEvId>.png). The
+// sandbox has no repositoryEvId to key on, so the four fixture models carry
+// their catalogue shot locally and are matched by name instead. Each file is
+// cropped to the vehicle so "cover" fills its frame rather than floating in
+// the studio white the catalogue ships with.
 
 import { IoCarSport } from "react-icons/io5";
 import type { Vehicle } from "@/data/types";
@@ -27,6 +33,29 @@ const CATALOG: { match: RegExp; photo: VehiclePhotoAsset }[] = [
   {
     match: /e-?\s?transit|\bET\d/i,
     photo: { src: "/vehicles/ford-e-transit.png", alt: "Ford E-Transit Cargo Van", fit: "contain" },
+  },
+  {
+    // Eco Mobility's 4W fleet — "MG / ZS EV EXECUTIVE".
+    match: /\bzs\s?ev\b|\bmg\b.*\bzs\b/i,
+    photo: { src: "/vehicles/mg-zs-ev.png", alt: "MG ZS EV", fit: "cover" },
+  },
+  {
+    // Etash 3W cargo — "Piaggio Vehicles Pvt Ltd / Ape E-Xtra FX Max".
+    match: /\bape\b|piaggio/i,
+    photo: {
+      src: "/vehicles/piaggio-ape-e-xtra.png",
+      alt: "Piaggio Ape E-Xtra FX Max",
+      fit: "cover",
+    },
+  },
+  {
+    // Etash 3W cargo — "Mahindra Electric Mobility Ltd / ZOR grand DV".
+    match: /\bzor\b/i,
+    photo: {
+      src: "/vehicles/mahindra-zor-grand.png",
+      alt: "Mahindra Zor Grand",
+      fit: "cover",
+    },
   },
 ];
 

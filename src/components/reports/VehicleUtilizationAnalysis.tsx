@@ -265,6 +265,8 @@ function patchUtilization(
 const HUB_CLUSTER_COLOR = "#f97316"; // Clusters within 150m of a hub charger
 const OTHER_CLUSTER_COLOR = "#3b82f6"; // Clusters away from the hub
 const CLUSTER_RADIUS_METERS = 150;
+/** City running speed for a 3W cargo round, used to tell driving from parked. */
+const CITY_SPEED_KMH = 22;
 
 function haversineMeters(
   lat1: number,
@@ -282,12 +284,16 @@ function haversineMeters(
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function hashInt(key: string): number {
+  let h = 0;
+  for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
 // Fixtures carry no idle-period GPS point — derive a deterministic location
 // near the Guwahati hub area from a string hash.
 function hashPoint(key: string): { lat: number; lng: number } {
-  let h = 0;
-  for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) | 0;
-  const a = Math.abs(h);
+  const a = hashInt(key);
   return {
     lat: 26.11 + ((a % 1000) / 1000) * 0.02,
     lng: 91.78 + ((Math.floor(a / 1000) % 1000) / 1000) * 0.03,
@@ -548,9 +554,66 @@ export default function VehicleUtilizationAnalysis() {
     netChargingSecsByVehicle,
   ]);
 
+  // Idle events behind the map. Production reads these from telemetry stops,
+  // so a delivery round leaves a trail of short idles around the city and only
+  // the overnight park at the hub survives the "> 8 hr" filter. Taking them
+  // from the gaps *between* trips alone lost that: a fixture vehicle runs one
+  // or two trips a day, so almost every gap clamped to the 12 h ceiling and
+  // all five thresholds drew the same map.
+  //
+  // A trip here can last nine hours while covering six kilometres, and the
+  // difference is time parked — so a round is split into the stops it must
+  // have contained. Metrics keep using the between-trip periods: these sit
+  // inside a trip and are subtracted there anyway.
+  const withinTripStops = useMemo<IdlePeriod[]>(() => {
+    const out: IdlePeriod[] = [];
+    for (const t of trips) {
+      const durationSec = (t.endMs - t.startMs) / 1000;
+      if (!Number.isFinite(durationSec) || durationSec <= 0) continue;
+      const drivingSec = Math.min(
+        durationSec,
+        (t.distanceKm / CITY_SPEED_KMH) * 3600,
+      );
+      const parkedSec = durationSec - drivingSec;
+      if (parkedSec < 20 * 60) continue;
+
+      const h = hashInt(`${t.vehicleId}:${t.startMs}`);
+      // How the parked time breaks up varies by round — one long wait at a
+      // warehouse, or four drops of half an hour. That variety is the point:
+      // it puts idle events in every band the filter offers, so raising the
+      // threshold thins the map out instead of leaving it untouched.
+      const maxStops = Math.max(1, Math.min(4, Math.floor(parkedSec / (40 * 60))));
+      const stops = 1 + (h % maxStops);
+      // Uneven but deterministic split, so the durations spread across the
+      // filter's bands instead of landing on one value.
+      const weights: number[] = [];
+      let totalWeight = 0;
+      for (let i = 0; i < stops; i += 1) {
+        const w = 0.6 + ((h >> (i * 3)) % 100) / 125;
+        weights.push(w);
+        totalWeight += w;
+      }
+      for (let i = 0; i < stops; i += 1) {
+        out.push({
+          vehicleId: t.vehicleId,
+          startedAtMs: Math.round(
+            t.startMs + ((i + 0.5) / stops) * durationSec * 1000,
+          ),
+          durationSeconds: (parkedSec * weights[i]) / totalWeight,
+        });
+      }
+    }
+    return out;
+  }, [trips]);
+
+  const mapIdlePeriods = useMemo(
+    () => [...idlePeriods, ...withinTripStops],
+    [idlePeriods, withinTripStops],
+  );
+
   // Map idle periods (feeds the placeholder count).
   const filteredIdlePeriods = useMemo(() => {
-    let filtered = idlePeriods;
+    let filtered = mapIdlePeriods;
 
     if (idleDurationFilter > 0) {
       const minSeconds = idleDurationFilter * 3600;
@@ -585,7 +648,7 @@ export default function VehicleUtilizationAnalysis() {
 
     return filtered;
   }, [
-    idlePeriods,
+    mapIdlePeriods,
     idleDurationFilter,
     mapViewFilter,
     workHours,

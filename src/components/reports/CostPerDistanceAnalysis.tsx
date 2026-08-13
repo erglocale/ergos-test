@@ -12,6 +12,7 @@ import { DATE_FORMAT } from "@/lib/dateFormat";
 import {
   costPerDistanceLabel,
   money,
+  perDistance as formatRate,
   setUnitSystem,
   toDistance,
   useUnits,
@@ -406,7 +407,7 @@ export default function CostPerDistanceAnalysis() {
   );
 
   // Everything is stored per km; these two convert at the display boundary.
-  const perDistance = (costPerKm: number | null | undefined) =>
+  const toRate = (costPerKm: number | null | undefined) =>
     costPerKm == null ? null : costPerKm / units.kmFactor;
   const dist = (km: number) => toDistance(km, units);
 
@@ -512,7 +513,7 @@ export default function CostPerDistanceAnalysis() {
           const p = params[0];
           return `<div style="font-weight:600;margin-bottom:4px;">${p.name}</div>
                 <span style="color:#FB923C;">${costPerDistanceLabel(units)}: </span>
-                <span style="font-weight:700;">${p.value != null ? p.value.toFixed(2) : "N/A"}</span>`;
+                <span style="font-weight:700;">${formatRate(p.value)}</span>`;
         },
       },
       grid: { top: 32, right: 24, bottom: 40, left: 64 },
@@ -531,7 +532,7 @@ export default function CostPerDistanceAnalysis() {
         axisLabel: {
           color: "#78716C",
           fontSize: 12,
-          formatter: (v: number) => `${units.currencySymbol}${v.toFixed(2)}`,
+          formatter: (v: number) => `${units.currencySymbol}${formatRate(v)}`,
         },
       },
       series: [
@@ -566,7 +567,7 @@ export default function CostPerDistanceAnalysis() {
               color: "#F59E0B",
               fontSize: 11,
               formatter: (p: { value: number }) =>
-                `Avg ${units.currencySymbol}${Number(p.value).toFixed(2)}`,
+                `Avg ${units.currencySymbol}${formatRate(Number(p.value))}`,
             },
             data: [{ type: "average", name: "Fleet avg" }],
           },
@@ -599,7 +600,7 @@ export default function CostPerDistanceAnalysis() {
       row.plate,
       Math.round(dist(row.dist) * 100) / 100,
       row.cost,
-      perDistance(row.rsPerKm)?.toFixed(4) ?? "",
+      toRate(row.rsPerKm)?.toFixed(4) ?? "",
     ]);
     downloadCsv([headers, ...rows], "cost_per_distance.csv");
   };
@@ -756,7 +757,7 @@ export default function CostPerDistanceAnalysis() {
                       fontVariantNumeric: "tabular-nums",
                     }}
                   >
-                    {perDistance(summaryKpis.avgRsPerKm)?.toFixed(2) ?? "N/A"}
+                    {formatRate(toRate(summaryKpis.avgRsPerKm))}
                   </span>
                   <span style={{ fontSize: 20, color: "#78716C", fontWeight: 500 }}>
                     {costPerDistanceLabel(units)}
@@ -978,7 +979,7 @@ export default function CostPerDistanceAnalysis() {
                               color: "#1C1917",
                             }}
                           >
-                            {perDistance(row.rsPerKm)?.toFixed(2) ?? "N/A"}
+                            {formatRate(toRate(row.rsPerKm))}
                           </td>
                         </tr>
                       ))}
