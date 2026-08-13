@@ -340,10 +340,10 @@ export default function ChargingPlanCard({
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <Text strong>Charging plan</Text>
+          <Text strong>Charging Schedules</Text>
           <div style={{ fontSize: 12, color: "#888" }}>
-            Each vehicle charges to its required SoC before its ready time, or in plug-in order on
-            FIFO. &quot;Optimize&quot; hands the vehicle&apos;s suggested SoC cap to the optimizer.
+            Each vehicle charges up to its smart charge limit, or follows First In First Out (FIFO)
+            as saved below.
           </div>
         </div>
         {extra}

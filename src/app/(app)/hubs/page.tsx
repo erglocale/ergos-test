@@ -123,11 +123,11 @@ export default function HubsIndex() {
         styles={{ body: { padding: 16 } }}
       >
         <Text strong style={{ display: "block", marginBottom: 4 }}>
-          Charger schedule
+          Chargers
         </Text>
         <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>
-          Sessions per charger across every hub — past on the left of the line, energy brain&apos;s plan on
-          the right.
+          Sessions per charger across every hub — past on the left of the line, optimized future
+          charging on the right.
         </div>
         <ChargerScheduleCalendar chargers={db.chargepoints} />
       </Card>

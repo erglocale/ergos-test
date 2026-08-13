@@ -175,7 +175,7 @@ function Legend() {
       )}
       {item(
         <>
-          <Swatch color={ORANGE} /> energy brain will charge
+          <Swatch color={ORANGE} /> optimized future charging
         </>,
       )}
       {item(

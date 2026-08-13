@@ -4,7 +4,9 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "ergOS — UI Test",
+  // The production tab title (ergOS-frontend/index.html), so a browser tab or a
+  // screen share during the demo reads the same as the real app.
+  title: "ergOS | Smart EV Fleet Management & Intelligent Energy Optimization",
   description: "ergOS UI/UX sandbox — dummy data, no backend",
 };
 
