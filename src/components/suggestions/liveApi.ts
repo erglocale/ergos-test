@@ -10,7 +10,8 @@
 // can't kill them for hitting an "analytics" hostname. The real base URL
 // stays in .env.local and is never committed.
 
-import type { CapRow, NudgeRow } from "./derive";
+import type { CapConfidence, CapRow, NudgeRow } from "./derive";
+import { capConfidence } from "./derive";
 
 /** Non-empty when live mode is configured; the page uses it to gate the toggle. */
 export const ANALYTICS_API = process.env.NEXT_PUBLIC_ANALYTICS_API ?? "";
@@ -40,6 +41,7 @@ interface ApiCapRow {
   lowest_safe_cap: number | null;
   tolerance_pct: number | null;
   operating_days: number | null;
+  confidence: CapConfidence | null;
   sweep: { cap: number; added_pct: number }[] | null;
   window_from: string | null;
   window_to: string | null;
@@ -55,6 +57,9 @@ export async function fetchLiveCapRows(gid: string): Promise<CapRow[]> {
     windowFrom: r.window_from ?? "",
     windowTo: r.window_to ?? "",
     computedAt: r.computed_at ?? "",
+    // The engine stores the band; fall back to deriving it the same way if an
+    // older row predates the column.
+    confidence: r.confidence ?? capConfidence(r.operating_days),
     socLimit:
       r.suggested_cap != null
         ? {

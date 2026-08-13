@@ -15,10 +15,11 @@
 
 import type { Alert, Vehicle } from "./types";
 
-/** ~0.5C for an 89–100 kWh van pack — above this a session counts as "fast". */
-const FAST_KW = 50;
+/** Above the three-phase AC these vans charge on at the depot, so anything
+ *  past it is a public DC top-up and counts as "fast". */
+const FAST_KW = 22;
 /** Consecutive fast charges before the alert fires. */
-const REQUIRED = 3;
+const REQUIRED = 10;
 
 interface ScriptEntry {
   /** Index into the fleet sorted by plate, wrapped if the fleet is smaller. */
@@ -49,13 +50,13 @@ const aux = (volts: number, minutes: number) => ({
 // Three repeated-fast-charging alerts (the newest is the worst offender), two
 // excessive-idle ones and two low auxiliary battery.
 const SCRIPT: ScriptEntry[] = [
-  { vehicle: 0, alertType: "repeated_fast_charging", hoursAgo: 14, payload: fastCharge(5), resolved: false },
+  { vehicle: 0, alertType: "repeated_fast_charging", hoursAgo: 14, payload: fastCharge(15), resolved: false },
   { vehicle: 3, alertType: "low_aux_battery", hoursAgo: 17, payload: aux(11.1, 95), resolved: false },
   { vehicle: 2, alertType: "excessive_idle", hoursAgo: 20, payload: idle(5.5), resolved: false },
-  { vehicle: 1, alertType: "repeated_fast_charging", hoursAgo: 2 * 24 + 3, payload: fastCharge(4), resolved: false },
+  { vehicle: 1, alertType: "repeated_fast_charging", hoursAgo: 2 * 24 + 3, payload: fastCharge(13), resolved: false },
   { vehicle: 2, alertType: "low_aux_battery", hoursAgo: 2 * 24 + 19, payload: aux(10.7, 140), resolved: true },
   { vehicle: 3, alertType: "excessive_idle", hoursAgo: 3 * 24 + 2, payload: idle(3.2), resolved: true },
-  { vehicle: 3, alertType: "repeated_fast_charging", hoursAgo: 4 * 24 + 6, payload: fastCharge(3), resolved: true },
+  { vehicle: 3, alertType: "repeated_fast_charging", hoursAgo: 4 * 24 + 6, payload: fastCharge(11), resolved: true },
 ];
 
 // Timestamps are anchored once per page load: getDb() re-merges on every store

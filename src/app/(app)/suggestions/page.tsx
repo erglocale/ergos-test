@@ -134,6 +134,13 @@ function ChargingTab({
 }
 
 // ---- SOC Cap tab: offline cap suggestion ----
+/** Matches the analytics table's confidence pills. */
+const CONFIDENCE_COLOR: Record<string, string> = {
+  High: "green",
+  Medium: "gold",
+  Low: "default",
+};
+
 function formatUpdated(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
@@ -188,7 +195,26 @@ function CapTab({
         ),
     },
     {
-      title: "Updated",
+      // How much driving the cap was learned from — the same band the
+      // analytics Suggestions table shows for the row it published.
+      title: "Confidence",
+      key: "confidence",
+      render: (_v, row) => (
+        <Tooltip
+          title={
+            row.details?.cap?.operating_days
+              ? `${row.details.cap.operating_days} operating days in the window`
+              : ""
+          }
+        >
+          <Tag color={CONFIDENCE_COLOR[row.confidence] ?? "default"}>
+            {row.confidence}
+          </Tag>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "Last updated",
       key: "updated",
       render: (_v, row) => (
         <Tooltip

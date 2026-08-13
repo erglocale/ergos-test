@@ -26,6 +26,17 @@ export interface CapSweepPoint {
   added_pct: number;
 }
 
+export type CapConfidence = "High" | "Medium" | "Low";
+
+/**
+ * How much history the cap was learned from, banded exactly as the analytics
+ * engine bands it (suggestions.py: >=20 operating days High, >=8 Medium).
+ */
+export function capConfidence(operatingDays: number | null | undefined): CapConfidence {
+  const days = operatingDays ?? 0;
+  return days >= 20 ? "High" : days >= 8 ? "Medium" : "Low";
+}
+
 export interface CapRow {
   suggestionId: string;
   evId: string;
@@ -35,6 +46,7 @@ export interface CapRow {
   windowFrom: string;
   windowTo: string;
   computedAt: string;
+  confidence: CapConfidence;
   socLimit: { suggested_cap: number; lowest_safe_cap: number } | null;
   details: {
     cap: {
@@ -78,21 +90,37 @@ export function deriveNudges(vehicles: Vehicle[]): NudgeRow[] {
     });
 }
 
+// The cap grid the analytics engine sweeps on: it starts at 100 and steps the
+// cap down, and it stops at the first cap that breaks the tolerance — lowering
+// a cap only removes stored energy, so every lower cap fails too and the engine
+// never simulates them. That is why a real sweep is three or four bars ending
+// just past the knee, and not a fixed grid of the same width for every vehicle.
+const SWEEP_STEP_PCT = 10;
+const SWEEP_FLOOR_PCT = 60;
+
 /** SOC-cap suggestion rows from db.suggestions, enriched with sweep data. */
 export function deriveCapRows(db: Db): CapRow[] {
   const vehicleByReg = Object.fromEntries(db.vehicles.map((v) => [v.reg, v]));
   return db.suggestions.map((s) => {
     const vehicle = vehicleByReg[s.vehicleReg];
-    const lowestSafe = Math.max(50, s.suggestedCapPct - 5);
+    // The lowest safe cap is one of the caps actually swept, so the chart has a
+    // bar to highlight for it.
+    const lowestSafe = Math.max(
+      SWEEP_FLOOR_PCT,
+      Math.floor((s.suggestedCapPct - 5) / SWEEP_STEP_PCT) * SWEEP_STEP_PCT,
+    );
     const tolerance = 5;
+    // Days of driving behind the suggestion. Vehicles that sat idle for much of
+    // the window give the engine less to go on, which is what the confidence
+    // banding reports — so the fleet carries a spread of them, not all High.
+    const operatingDays = 4 + (hash(s.id) % 30);
     const sweep: CapSweepPoint[] = [];
-    for (let cap = 60; cap <= 95; cap += 5) {
-      const base = cap < lowestSafe ? (lowestSafe - cap) * 1.6 + tolerance : 0;
-      const jitter = ((hash(`${s.id}-${cap}`) % 100) / 100) * 2;
-      sweep.push({
-        cap,
-        added_pct: Math.round((base + jitter) * 10) / 10,
-      });
+    for (let cap = 100; cap >= SWEEP_FLOOR_PCT; cap -= SWEEP_STEP_PCT) {
+      const jitter = ((hash(`${s.id}-${cap}`) % 100) / 100) * 1.2;
+      const base = cap < lowestSafe ? (lowestSafe - cap) * 1.1 + tolerance : 0;
+      const added = Math.round((base + jitter) * 10) / 10;
+      sweep.push({ cap, added_pct: added });
+      if (added > tolerance) break; // the knee — the engine stops here too
     }
     return {
       suggestionId: s.id,
@@ -103,6 +131,7 @@ export function deriveCapRows(db: Db): CapRow[] {
       windowFrom: s.windowFrom,
       windowTo: s.windowTo,
       computedAt: dayjs(s.windowTo).toISOString(),
+      confidence: capConfidence(operatingDays),
       socLimit: {
         suggested_cap: s.suggestedCapPct,
         lowest_safe_cap: lowestSafe,
@@ -112,7 +141,7 @@ export function deriveCapRows(db: Db): CapRow[] {
           sweep,
           lowest_safe_cap: lowestSafe,
           tolerance_pct: tolerance,
-          operating_days: 60 + (hash(s.id) % 30),
+          operating_days: operatingDays,
         },
       },
     };

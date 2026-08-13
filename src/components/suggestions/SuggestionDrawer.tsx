@@ -187,7 +187,10 @@ function CapDetail({
 }) {
   const sl = record.socLimit;
   const cap = record.details?.cap;
-  const sweep = cap?.sweep || [];
+  // Exactly the caps the sweep holds, at whatever step the engine ran and only
+  // as far down as it got — never a fixed grid. Highest cap first, as the
+  // analytics chart plots it.
+  const sweep = [...(cap?.sweep || [])].sort((a, b) => b.cap - a.cap);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -208,7 +211,9 @@ function CapDetail({
     xAxis: {
       type: "category",
       data: sweep.map((d) => String(d.cap)),
-      axisLabel: { fontSize: 11, formatter: (c: string) => `${c}%` },
+      // Every cap the sweep tested gets its own label, as the analytics chart
+      // does — echarts would otherwise drop every other one on a fine sweep.
+      axisLabel: { fontSize: 11, interval: 0, formatter: (c: string) => `${c}%` },
       axisTick: { show: false },
     },
     yAxis: {
@@ -289,7 +294,13 @@ function CapDetail({
               never measures a 0-width container. */}
           <div style={{ height: 220 }}>
             {chartReady && (
-              <ReactECharts option={sweepOption} style={{ height: 220 }} />
+              // Keyed on the sweep: a different bar count means a different
+              // drawer width, and echarts only measures its box on mount.
+              <ReactECharts
+                key={`${record.evId}-${sweep.length}`}
+                option={sweepOption}
+                style={{ height: 220 }}
+              />
             )}
           </div>
           <Text type="secondary" style={{ fontSize: 11 }}>
@@ -305,6 +316,18 @@ function CapDetail({
 export type DrawerRecord =
   | (NudgeRow & { kind: "charge" })
   | (CapRow & { kind: "cap" });
+
+/**
+ * Wide enough for the sweep the record actually carries. The step the engine
+ * ran at is a setting, so a fine sweep can be eleven bars where a coarse one is
+ * three — and eleven bars crammed into the standard drawer would collide.
+ */
+function drawerWidth(record: DrawerRecord | null): number {
+  const bars =
+    record?.kind === "cap" ? (record.details?.cap?.sweep?.length ?? 0) : 0;
+  if (bars <= 6) return 520;
+  return Math.min(880, 200 + bars * 46);
+}
 
 export default function SuggestionDrawer({
   record,
@@ -322,7 +345,9 @@ export default function SuggestionDrawer({
     <Drawer
       title={record ? record.label || `EV ${record.evId}` : ""}
       placement="right"
-      styles={{ wrapper: { width: 520 } }}
+      // maxWidth keeps it on screen on a narrow display, where a fixed px
+      // width would push the page sideways.
+      styles={{ wrapper: { width: drawerWidth(record), maxWidth: "92vw" } }}
       open={open}
       onClose={onClose}
       afterOpenChange={(isOpen) => setChartReady(isOpen)}

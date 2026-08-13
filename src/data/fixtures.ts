@@ -427,6 +427,8 @@ export function makeFixtures(now = dayjs()): Db {
     severity: Alert["severity"];
     weight: number;
     payload: () => Record<string, number>;
+    /** Restricts the alert to the vehicles that can actually raise it. */
+    onlyFor?: (v: Vehicle) => boolean;
   }> = [
     {
       alertType: "overspeed",
@@ -480,15 +482,19 @@ export function makeFixtures(now = dayjs()): Db {
       }),
     },
     {
-      // 10 kW is roughly 1C on these 8–12 kWh 3W packs, so anything above it is
-      // a swap-station style top-up rather than the depot's 3 kW overnight AC.
+      // Only the 4W fleet raises this one. The 3W cargo vehicles have no fast
+      // charging to repeat — the Ape and the ZOR take a single-phase AC lead
+      // and charge off the depot's 3.3 kW points, so they can never cross a
+      // fast-charge threshold. On the MG's 50 kWh pack, 11 kW is the line
+      // between the depot AC and a public top-up.
       alertType: "repeated_fast_charging",
       severity: "warning",
       weight: 5,
+      onlyFor: (v) => v.category === "4W",
       payload: () => ({
-        consecutive_fast_charge_count: int(3, 6),
-        required_fast_charge_count: 3,
-        fast_charging_power_threshold_kw: 10,
+        consecutive_fast_charge_count: int(8, 12),
+        required_fast_charge_count: 8,
+        fast_charging_power_threshold_kw: 11,
       }),
     },
   ];
@@ -506,7 +512,9 @@ export function makeFixtures(now = dayjs()): Db {
     // weighted draw alone can leave the rare ones out); rest follow the
     // real overspeed-heavy distribution.
     const spec = i < alertSpecs.length ? alertSpecs[i] : pickAlertSpec();
-    const v = pick(vehicles);
+    // A spec that only applies to part of the fleet draws from that part.
+    const candidates = spec.onlyFor ? vehicles.filter(spec.onlyFor) : vehicles;
+    const v = pick(candidates.length ? candidates : vehicles);
     const createdAt = now.subtract(int(1, 7 * 24), "hour");
     const resolved = rand() < 0.35;
     return {
