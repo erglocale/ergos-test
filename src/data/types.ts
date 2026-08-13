@@ -40,6 +40,21 @@ export interface ChargingSession {
   cost: number;
   status: "Ongoing" | "Completed" | "Faulted";
   stopReason: string | null;
+  /**
+   * How the session was seen. "OCPP" is a transaction one of our own chargers
+   * reported; "TELEMATICS" is a charge the vehicle's own pack revealed, which
+   * is the only way charging away from our hubs is ever visible — there is no
+   * charger, connector, meter register or transaction id for one of those.
+   * Absent means OCPP, so existing rows need no migration.
+   */
+  detectionSource?: "OCPP" | "TELEMATICS";
+  /**
+   * Where a telematics session happened. Null/absent for our own chargers.
+   * `name` is set when the spot resolves to a known public charging location —
+   * production tags those differently from a charge it can only place by
+   * coordinates (see the Location column rule).
+   */
+  location?: { name?: string | null; address: string; lat: number; lng: number } | null;
 }
 
 export interface Vehicle {

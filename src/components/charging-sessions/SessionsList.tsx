@@ -13,7 +13,9 @@ import {
   fmtDateTime,
   getDurationString,
   hubForSession,
+  isTelematicsSession,
   sessionAvgPowerKw,
+  sessionLocationTag,
 } from "./sessionUtils";
 import { DATE_FORMAT } from "@/lib/dateFormat";
 
@@ -25,6 +27,9 @@ function isSessionOngoing(session: ChargingSession) {
 }
 
 function getSessionLocation(session: ChargingSession, address: string | undefined) {
+  // A telematics session has no charger — where it happened is the vehicle's
+  // own position at the time, which is all we can report.
+  if (isTelematicsSession(session)) return session.location?.address ?? "";
   const parts: string[] = [];
   if (session.chargerName) parts.push(session.chargerName);
   if (address) parts.push(address);
@@ -71,8 +76,15 @@ export default function SessionsList({
 
   const hubOptions = useMemo(() => {
     const hubs = [...new Set(db.chargepoints.map((c) => c.hub))];
-    return hubs.map((h) => ({ label: h, value: h }));
-  }, [db.chargepoints]);
+    const options = hubs.map((h) => ({ label: h, value: h }));
+    // Charging away from our sites is a location you can filter on too — it is
+    // the one worth pulling up on its own, since those sessions are the ones
+    // nobody planned.
+    if (db.sessions.some(isTelematicsSession)) {
+      options.push({ label: "Outside Hub", value: "Outside Hub" });
+    }
+    return options;
+  }, [db.chargepoints, db.sessions]);
 
   const [hubFilter, setHubFilter] = useState<string | null>(null);
 
@@ -218,7 +230,10 @@ export default function SessionsList({
       dataIndex: "location",
       key: "location",
       width: 180,
-      render: (_, session) => <Tag color="magenta">{hubForSession(session, db.chargepoints)}</Tag>,
+      render: (_, session) => {
+        const tag = sessionLocationTag(session, db.chargepoints);
+        return <Tag color={tag.color}>{tag.label}</Tag>;
+      },
     },
     {
       title: "Start Time",

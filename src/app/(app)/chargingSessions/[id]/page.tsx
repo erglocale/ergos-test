@@ -15,7 +15,9 @@ import {
   fmtDateTime,
   getDurationString,
   hubForSession,
+  isTelematicsSession,
   sessionAvgPowerKw,
+  sessionLocationTag,
   sessionBillingId,
   sessionMeterValues,
   sessionTransactionId,
@@ -99,7 +101,11 @@ export default function SessionDetail() {
     const cp = db.chargepoints.find((c) => c.id === session.chargerId);
     const conn =
       cp?.connectors.find((cn) => cn.id === session.connectorId) ?? cp?.connectors[0];
-    return deriveMeterSeries(session, conn?.powerKw ?? 3, vehicle?.soc);
+    // A telematics session has no connector to rate the curve against, so its
+    // own average power stands in — a shade above it, since a charge that
+    // tapers has to peak higher than its mean to average out there.
+    const ratedKw = conn?.powerKw ?? Math.max(3, (sessionAvgPowerKw(session) ?? 3) * 1.3);
+    return deriveMeterSeries(session, ratedKw, vehicle?.soc);
   }, [session, db.chargepoints, vehicle?.soc]);
 
   if (!session) {
@@ -115,7 +121,16 @@ export default function SessionDetail() {
     chargepoint?.connectors[0];
   const { meterStart, meterStop } = sessionMeterValues(session);
   const hubName = hubForSession(session, db.chargepoints);
-  const mapChargepoint = chargepoint ?? db.chargepoints[0];
+  // Charging our own chargers never saw: no transaction, no connector, no
+  // meter register — only the vehicle's pack filling up somewhere else. The
+  // page drops to what telemetry can actually support.
+  const telematics = isTelematicsSession(session);
+  const locationTag = sessionLocationTag(session, db.chargepoints);
+  const mapPoint = chargepoint
+    ? { lat: chargepoint.lat, lng: chargepoint.lng, label: `${chargepoint.name} — ${chargepoint.address}` }
+    : session.location
+      ? { lat: session.location.lat, lng: session.location.lng, label: session.location.address }
+      : null;
   const ongoing = session.endTime === null;
   // A live session has no recorded end SoC, so fall back to the pack's level now.
   const endSoc = session.socEnd ?? (ongoing ? (vehicle?.soc ?? null) : null);
@@ -129,13 +144,18 @@ export default function SessionDetail() {
     color: string;
     unit: string;
     pick: (p: (typeof meterSeries)[number]) => number | null;
-  }[] = [
-    { name: "Battery SoC (%)", color: "#f59e0b", unit: "%", pick: (p) => p.socPct },
-    { name: "Energy (kWh)", color: "#22c55e", unit: "kWh", pick: (p) => p.energyKwh },
-    { name: "Current (A)", color: "#60A5FA", unit: "A", pick: (p) => p.currentA },
-    { name: "Voltage (V)", color: "#A78BFA", unit: "V", pick: (p) => p.voltageV },
-    { name: "Power (kW)", color: "#75331e", unit: "kW", pick: (p) => p.powerKw },
-  ];
+  }[] = telematics
+    ? // Nothing metered the session, so current, voltage and the cumulative
+      // register would be invented. The pack level is the one thing the
+      // vehicle itself reported.
+      [{ name: "Battery SoC (%)", color: "#f59e0b", unit: "%", pick: (p) => p.socPct }]
+    : [
+        { name: "Battery SoC (%)", color: "#f59e0b", unit: "%", pick: (p) => p.socPct },
+        { name: "Energy (kWh)", color: "#22c55e", unit: "kWh", pick: (p) => p.energyKwh },
+        { name: "Current (A)", color: "#60A5FA", unit: "A", pick: (p) => p.currentA },
+        { name: "Voltage (V)", color: "#A78BFA", unit: "V", pick: (p) => p.voltageV },
+        { name: "Power (kW)", color: "#75331e", unit: "kW", pick: (p) => p.powerKw },
+      ];
   const unitByName = Object.fromEntries(METRICS.map((m) => [m.name, m.unit]));
 
   const chartOption = {
@@ -207,14 +227,20 @@ export default function SessionDetail() {
               Charging Session · {sessionId}
             </Text>
             <Title level={3} style={{ margin: "2px 0 6px" }}>
-              {renderValue(chargepoint?.name ?? session.chargerName)}
+              {telematics
+                ? (session.location?.name ?? "Outside Hub Charging Session")
+                : renderValue(chargepoint?.name ?? session.chargerName)}
             </Title>
             <span>
               <Tag color={ongoing ? "green" : "default"}>
                 {ongoing ? "Charging" : "Completed"}
               </Tag>
-              <Tag>{connector ? `AC ${connector.powerKw} kW` : "AC"}</Tag>
-              <Tag color="magenta">{hubName}</Tag>
+              {telematics ? (
+                <Tag color="geekblue">Detected by telematics</Tag>
+              ) : (
+                <Tag>{connector ? `AC ${connector.powerKw} kW` : "AC"}</Tag>
+              )}
+              <Tag color={locationTag.color}>{locationTag.label}</Tag>
             </span>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -263,20 +289,50 @@ export default function SessionDetail() {
               label="End Time"
               value={session.endTime ? renderValue(fmtDateTime(session.endTime)) : "Ongoing"}
             />
-            <DetailRow label="Connector Type" value={renderValue(connector?.type)} />
-            <DetailRow label="Charger Type" value={renderValue(connector ? "AC" : null)} />
-            <DetailRow label="Charger Capacity" value={renderValue(connector?.powerKw, " kW")} />
-            <DetailRow label="Charger Id" value={renderValue(chargerOcppId(chargepoint))} />
-            <DetailRow label="Connector Id" value={renderValue(session.connectorId)} />
-            <DetailRow label="Transaction Id" value={renderValue(sessionTransactionId(session))} />
-            <DetailRow label="Billing Id" value={renderValue(sessionBillingId(session))} />
-            <DetailRow label="Initiated by" value={renderValue(session.driverName)} />
-            <DetailRow
-              label="Stopped by"
-              value={session.endTime ? renderValue(session.driverName) : renderValue(null)}
-            />
-            <DetailRow label="Meter Start" value={renderValue(meterStart)} />
-            <DetailRow label="Meter Stop" value={renderValue(meterStop)} />
+            {telematics ? (
+              // What production's telemetry session shows, and no more: the
+              // OCPP fields below simply do not exist for a charge away from
+              // our chargers.
+              <>
+                <DetailRow
+                  label="Energy Consumed"
+                  value={renderValue(session.energyKwh.toFixed(2), " kWh")}
+                />
+                <DetailRow
+                  label="Charging Power"
+                  value={renderValue(avgKw === null ? null : avgKw.toFixed(2), " kW")}
+                />
+                <DetailRow label="Location" value={renderValue(session.location?.address)} />
+                <DetailRow
+                  label="Charging Cost"
+                  value={renderValue(session.cost ? `₹ ${session.cost.toFixed(2)}` : null)}
+                />
+                <DetailRow label="Detected by" value="Vehicle telematics" />
+              </>
+            ) : (
+              <>
+                <DetailRow label="Connector Type" value={renderValue(connector?.type)} />
+                <DetailRow label="Charger Type" value={renderValue(connector ? "AC" : null)} />
+                <DetailRow
+                  label="Charger Capacity"
+                  value={renderValue(connector?.powerKw, " kW")}
+                />
+                <DetailRow label="Charger Id" value={renderValue(chargerOcppId(chargepoint))} />
+                <DetailRow label="Connector Id" value={renderValue(session.connectorId)} />
+                <DetailRow
+                  label="Transaction Id"
+                  value={renderValue(sessionTransactionId(session))}
+                />
+                <DetailRow label="Billing Id" value={renderValue(sessionBillingId(session))} />
+                <DetailRow label="Initiated by" value={renderValue(session.driverName)} />
+                <DetailRow
+                  label="Stopped by"
+                  value={session.endTime ? renderValue(session.driverName) : renderValue(null)}
+                />
+                <DetailRow label="Meter Start" value={renderValue(meterStart)} />
+                <DetailRow label="Meter Stop" value={renderValue(meterStop)} />
+              </>
+            )}
           </div>
         </div>
 
@@ -314,19 +370,10 @@ export default function SessionDetail() {
           </div>
           <div className="flex flex-grow flex-col p-4">
             <Text type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-              Charging Location · {hubName}
+              Charging Location · {telematics ? (session.location?.address ?? hubName) : hubName}
             </Text>
-            {mapChargepoint ? (
-              <ChargerLocationMap
-                points={[
-                  {
-                    lat: mapChargepoint.lat,
-                    lng: mapChargepoint.lng,
-                    label: `${mapChargepoint.name} — ${mapChargepoint.address}`,
-                  },
-                ]}
-                height={240}
-              />
+            {mapPoint ? (
+              <ChargerLocationMap points={[mapPoint]} height={240} />
             ) : (
               <div className="flex h-60 items-center justify-center rounded-xl bg-gray-100">
                 <span className="text-gray-500">Map data unavailable</span>
@@ -342,7 +389,7 @@ export default function SessionDetail() {
         style={{ border: "1px solid #f0f0f0" }}
       >
         <Title level={4} style={{ marginTop: 0, marginBottom: 4 }}>
-          Meter Values vs. Time
+          {telematics ? "Battery SoC vs. Time" : "Meter Values vs. Time"}
         </Title>
         {meterSeries.length > 0 ? (
           <ReactECharts

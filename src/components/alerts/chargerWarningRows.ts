@@ -137,9 +137,10 @@ export function buildChargerWarningRows(
   );
 
   // Throughput is judged against the rest of the fleet, not against the
-  // nameplate. These are 3.3 kW AC units doing small top-ups, so every one of
-  // them averages well under its rating and an absolute floor would flag the
-  // lot — which tells a site nothing. What is worth a row is a charger
+  // nameplate. These are AC units doing small top-ups, so every one of them
+  // averages well under its rating and an absolute floor would flag the lot —
+  // which tells a site nothing. It would also punish the 7.4 kW units for the
+  // cars' habit of arriving nearly full. What is worth a row is a charger
   // delivering materially less than its neighbours on the same duty.
   const ratios = healthByCharger
     .filter(([, h]) => h.ratedKw > 0 && h.sessions7d > 0)

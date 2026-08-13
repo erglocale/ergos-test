@@ -87,11 +87,26 @@ export function advance(state: SimState, i: SimInputs, nowMs: number): SimState 
   };
 }
 
-/** Minutes until the target SoC at the current power, or null when parked. */
+/**
+ * Minutes until the target SoC, or null when parked.
+ *
+ * Integrated in 1 % steps rather than divided by the current power, because
+ * power is not constant: above 80 % the taper takes it down toward a fifth of
+ * the rating, and a flat extrapolation promises a finish time the session
+ * cannot meet. The error grows with the socket — a 7.4 kW car charging to 100 %
+ * was reading about 20 % early.
+ */
 export function etaMinutes(state: SimState, i: SimInputs): number | null {
   if (state.powerKw <= 0) return null;
-  const remainingKwh = Math.max(0, ((i.targetSoc - state.soc) / 100) * i.batteryKwh);
-  return Math.round((remainingKwh / (state.powerKw * CHARGE_EFFICIENCY)) * 60);
+  const kwhPerPct = i.batteryKwh / 100;
+  let hours = 0;
+  for (let soc = state.soc; soc < i.targetSoc; soc += 1) {
+    const step = Math.min(1, i.targetSoc - soc);
+    const kw = chargePowerKw(soc, i);
+    if (kw <= 0) break;
+    hours += (step * kwhPerPct) / (kw * CHARGE_EFFICIENCY);
+  }
+  return Math.round(hours * 60);
 }
 
 // ---- Optimizer plan cache ---------------------------------------------------

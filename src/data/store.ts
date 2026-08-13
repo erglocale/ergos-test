@@ -19,7 +19,11 @@ import type { CollectionKey, Db, Profile } from "./types";
 // v18: Azara carries charging history up to the day its sockets faulted.
 // v19: a faulted socket on CP-1 Six Mile, plus past charger warnings.
 // v20: repeated fast charging is a 4W-only alert, at the MG's thresholds.
-const DB_KEY = "ergos-test:db:v20";
+// v21: outside-hub (telematics) sessions, a live session per working site, and
+//      drivers on the Kapashera cars so their sessions are fleet sessions.
+// v22: outside-hub sessions carry no public location name — the tag reads
+//      "Outside Hub", not the name of the place.
+const DB_KEY = "ergos-test:db:v22";
 
 let cache: Db | null = null;
 // Live rows from energy-brain, merged (not persisted) on top of the fixtures.

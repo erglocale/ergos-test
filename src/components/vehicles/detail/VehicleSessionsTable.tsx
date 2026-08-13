@@ -12,6 +12,7 @@ import {
   getDurationString,
   hubForSession,
   sessionAvgPowerKw,
+  sessionLocationTag,
 } from "@/components/charging-sessions/sessionUtils";
 import { useDb } from "@/data/store";
 import type { ChargingSession, Vehicle } from "@/data/types";
@@ -143,7 +144,10 @@ export default function VehicleSessionsTable({ vehicle }: { vehicle: Vehicle }) 
       dataIndex: "location",
       key: "location",
       width: 180,
-      render: (_, session) => <Tag color="magenta">{hubForSession(session, db.chargepoints)}</Tag>,
+      render: (_, session) => {
+        const tag = sessionLocationTag(session, db.chargepoints);
+        return <Tag color={tag.color}>{tag.label}</Tag>;
+      },
     },
     {
       title: "Start Time",

@@ -95,6 +95,30 @@ export function hubForSession(session: ChargingSession, chargepoints: Chargepoin
   return chargepoints.find((c) => c.id === session.chargerId)?.hub ?? "Outside Hub";
 }
 
+/**
+ * A charge the vehicle's own telemetry found, away from our chargers. There is
+ * no transaction, no connector and no meter behind it — only the pack's SoC
+ * rising — so the screens that show OCPP detail have nothing to show for one.
+ */
+export function isTelematicsSession(session: ChargingSession): boolean {
+  return session.detectionSource === "TELEMATICS";
+}
+
+/**
+ * The Location tag. Our own hubs are magenta, as production renders them;
+ * anything charged away from them is geekblue — the colour production uses for
+ * a location that isn't ours — so an outside-hub charge is distinguishable at a
+ * glance rather than reading like just another site.
+ */
+export function sessionLocationTag(
+  session: ChargingSession,
+  chargepoints: Chargepoint[],
+): { label: string; color: string } {
+  const hub = chargepoints.find((c) => c.id === session.chargerId)?.hub;
+  if (hub) return { label: hub, color: "magenta" };
+  return { label: session.location?.name ?? "Outside Hub", color: "geekblue" };
+}
+
 /** Simple client-side CSV download (sandbox stand-in for the xlsx export). */
 export function downloadCsv(filename: string, header: string[], rows: (string | number | null)[][]) {
   const esc = (v: string | number | null) => {

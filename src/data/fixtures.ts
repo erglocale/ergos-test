@@ -76,7 +76,9 @@ const DRIVER_NAMES = [
   "Bikash Deka",
   "Hemanta Nath",
   "Jitu Rabha",
-  "Simanta Baruah",
+  // The last three take the Kapashera cars, so their licences and addresses
+  // read as Delhi ones.
+  "Vikram Chauhan",
   "Naresh Yadav",
   "Sunil Kumar",
 ];
@@ -115,14 +117,18 @@ export function makeFixtures(now = dayjs()): Db {
   // `faulted` lists individual dead sockets on an otherwise working unit — one
   // of CP-1 Six Mile's three is out, which is the ordinary case a hub deals
   // with and the second live row on the charger alerts page.
+  //
+  // Kapashera is the exception: it charges cars, not 3W cargo, so it runs
+  // single-phase Type 2 at 32 A — 7.4 kW, the standard AC rating a car takes
+  // (a 3-pin socket physically cannot carry it).
   const chargepoints: Chargepoint[] = [];
   const cpSpecs = [
-    { hub: 0, name: "CP-1, Six Mile", model: "AC001", connectorCount: 3, powerKw: 3.3, allFaulted: false, faulted: [3] },
-    { hub: 0, name: "CP-2, Six Mile", model: "HALO", connectorCount: 1, powerKw: 3, allFaulted: false },
-    { hub: 0, name: "CP-3, Six Mile", model: "AC001", connectorCount: 3, powerKw: 3.3, allFaulted: false },
-    { hub: 1, name: "CP-1, Azara", model: "AC001", connectorCount: 3, powerKw: 3.3, allFaulted: true },
-    { hub: 2, name: "CP-1, Kapashera", model: "AC001", connectorCount: 1, powerKw: 3.3, allFaulted: false },
-    { hub: 2, name: "CP-2, Kapashera", model: "AC001", connectorCount: 1, powerKw: 3.3, allFaulted: false },
+    { hub: 0, name: "CP-1, Six Mile", model: "AC001", connectorCount: 3, powerKw: 3.3, connector: "3PIN" as const, allFaulted: false, faulted: [3] },
+    { hub: 0, name: "CP-2, Six Mile", model: "HALO", connectorCount: 1, powerKw: 3, connector: "3PIN" as const, allFaulted: false },
+    { hub: 0, name: "CP-3, Six Mile", model: "AC001", connectorCount: 3, powerKw: 3.3, connector: "3PIN" as const, allFaulted: false },
+    { hub: 1, name: "CP-1, Azara", model: "AC001", connectorCount: 3, powerKw: 3.3, connector: "3PIN" as const, allFaulted: true },
+    { hub: 2, name: "CP-1, Kapashera", model: "AC007", connectorCount: 1, powerKw: 7.4, connector: "Type2" as const, allFaulted: false },
+    { hub: 2, name: "CP-2, Kapashera", model: "AC007", connectorCount: 1, powerKw: 7.4, connector: "Type2" as const, allFaulted: false },
   ];
   cpSpecs.forEach((spec, i) => {
     const hub = HUBS[spec.hub];
@@ -136,7 +142,7 @@ export function makeFixtures(now = dayjs()): Db {
       status: "Online",
       connectors: Array.from({ length: spec.connectorCount }, (_, ci) => ({
         id: ci + 1,
-        type: "3PIN" as const,
+        type: spec.connector,
         powerKw: spec.powerKw,
         status:
           spec.allFaulted || spec.faulted?.includes(ci + 1)
@@ -154,13 +160,32 @@ export function makeFixtures(now = dayjs()): Db {
   // ---- vehicles + drivers -------------------------------------------------
   const vehicles: Vehicle[] = [];
   const drivers: Driver[] = [];
+  // The five vehicles nobody has checked into. Spread across the Guwahati 3W
+  // fleet, never a whole site.
+  const DRIVERLESS_REGS = new Set([
+    "AS01SC7438",
+    "AS01SC7492",
+    "AS01SC7619",
+    "AS01TC1046",
+    "AS01TC1083",
+  ]);
+  let driverIdx = 0;
   // Plates, makes, battery sizes, SoC caps and home hubs come from the two real
   // fleets; SoC, odometer, IMEI and the driver roster are generated. Not every
   // vehicle has a driver — the rest read as "vehicle is not used", exactly as
   // production does when nobody has checked in.
   FLEET.forEach((spec, i) => {
     const hub = HUBS[spec.hub];
-    const driver = i < DRIVER_NAMES.length ? DRIVER_NAMES[i] : null;
+    // Who has a driver checked in. Not everyone does — those vehicles read as
+    // "not in use", exactly as production does — but which ones matters: a
+    // session on a vehicle with nobody assigned counts as admin charging and
+    // sits on the other tab of the sessions list. Leaving the whole Kapashera
+    // fleet driverless put every one of its sessions, and every outside-hub
+    // charge, out of the default view.
+    const driver = DRIVERLESS_REGS.has(spec.reg)
+      ? null
+      : (DRIVER_NAMES[driverIdx] ?? null);
+    if (driver) driverIdx += 1;
     // Never seed "Charging" here — that status is derived from whether the
     // vehicle actually has a live session, so a stored flag would drift out of
     // sync with the session list (see normalizeChargingStatus in store.ts).
@@ -242,6 +267,17 @@ export function makeFixtures(now = dayjs()): Db {
   // top-ups of small batteries — mostly 0.4–4.5 kWh over 15 min–2.5 h, the
   // odd plug-in that draws ~nothing, stop reason almost always
   // "EVDisconnected", and no billing amounts (fleet charging is unbilled).
+  // The Kapashera cars are the exception on both counts: a 50 kWh pack on a
+  // 7.4 kW socket takes far more than a 3W top-up, so they draw up to 14 kWh.
+  const maxSessionKwh = (v: Vehicle) => (v.category === "4W" ? 14 : 4.5);
+  // One unit is genuinely under-delivering: it holds a vehicle for as long as
+  // ever but puts barely half the energy in, which is what a supply or cabling
+  // problem looks like from the outside. Nothing on the charger's status page
+  // shows it — only its throughput against the rest of the fleet, which is the
+  // "Throughput degraded" row on the charger alerts page.
+  const DEGRADED_CP_ID = "CP-002";
+  const deliveredKwh = (cp: Chargepoint, plannedKwh: number) =>
+    cp.id === DEGRADED_CP_ID ? round2(plannedKwh * 0.55) : plannedKwh;
   const sessions: ChargingSession[] = [];
   let sesId = 0;
   const usableCps = chargepoints.filter(
@@ -269,13 +305,13 @@ export function makeFixtures(now = dayjs()): Db {
       if (d === 0 && start.isAfter(now)) continue;
       const socStart = int(20, 65);
       const dud = rand() < 0.08; // plugged in but drew ~nothing
-      const maxEnergy = Math.min(4.5, ((v.socCapPct - socStart) / 100) * v.batteryKwh);
+      const maxEnergy = Math.min(maxSessionKwh(v), ((v.socCapPct - socStart) / 100) * v.batteryKwh);
       const energy = dud ? round2(between(0, 0.05)) : round2(between(0.4, maxEnergy));
-      const socEnd = Math.min(
-        v.socCapPct,
-        socStart + Math.round((energy / v.batteryKwh) * 100),
-      );
+      // Time on the socket comes from what the charger should deliver; what it
+      // actually delivers is what `delivered` says. On the degraded unit those
+      // are not the same number, which is the whole point of it.
       const durMin = Math.round((energy / connector.powerKw) * 60) + int(8, 35);
+      const delivered = deliveredKwh(cp, energy);
       const end = start.add(durMin, "minute");
       // History is history: only the one guaranteed session below is live, so
       // every page agrees on how many vehicles are charging right now.
@@ -290,15 +326,21 @@ export function makeFixtures(now = dayjs()): Db {
         driverName: drivers.find((dr) => dr.vehicleReg === v.reg)?.name ?? "—",
         startTime: start.toISOString(),
         endTime: end.toISOString(),
-        energyKwh: faulted ? round2(energy * 0.2) : energy,
+        energyKwh: faulted ? round2(delivered * 0.2) : delivered,
         socStart,
-        socEnd: faulted ? socStart + int(1, 4) : socEnd,
+        socEnd: faulted
+          ? socStart + int(1, 4)
+          : Math.min(v.socCapPct, socStart + Math.round((delivered / v.batteryKwh) * 100)),
         cost: 0,
         status: faulted ? "Faulted" : "Completed",
         stopReason: faulted ? "PowerLoss" : pick(["EVDisconnected", "EVDisconnected", "EVDisconnected", "Remote"]),
       });
     }
   }
+  // When Azara's sockets went. Fixed rather than random because both the
+  // warning it raises and the last session before it are pinned to it — the
+  // site's history has to end where the fault begins.
+  const AZARA_FAULT_HOURS_AGO = 14;
   // Azara's sockets read Faulted *now* — the warning it raises is hours old,
   // not days — so the hub has history right up to the point they failed and
   // nothing since. Without it the site reports zero sessions in every report,
@@ -307,6 +349,32 @@ export function makeFixtures(now = dayjs()): Db {
   if (azaraCp) {
     const connector = azaraCp.connectors[0];
     const azaraVehicles = vehicles.filter((v) => v.hub === azaraCp.hub);
+    // The last vehicle to charge there before the sockets went, so Azara is
+    // still in the recent history rather than only in the older pages.
+    {
+      sesId += 1;
+      const v = azaraVehicles[0] ?? vehicles[0];
+      const end = now.subtract(AZARA_FAULT_HOURS_AGO + 2, "hour");
+      const energy = round2(between(1.2, 3.2));
+      const durMin = Math.round((energy / connector.powerKw) * 60) + int(10, 25);
+      const socStart = int(28, 52);
+      sessions.push({
+        id: `CS-${String(sesId).padStart(5, "0")}`,
+        chargerId: azaraCp.id,
+        chargerName: azaraCp.name,
+        connectorId: connector.id,
+        vehicleReg: v.reg,
+        driverName: drivers.find((dr) => dr.vehicleReg === v.reg)?.name ?? "—",
+        startTime: end.subtract(durMin, "minute").toISOString(),
+        endTime: end.toISOString(),
+        energyKwh: energy,
+        socStart,
+        socEnd: Math.min(v.socCapPct, socStart + Math.round((energy / v.batteryKwh) * 100)),
+        cost: 0,
+        status: "Completed",
+        stopReason: "EVDisconnected",
+      });
+    }
     // Stops at d = 2: the fault is at most 30 h old, so a session that ended
     // two days ago is safely on the working side of it.
     for (let d = 14; d >= 2; d -= 1) {
@@ -316,7 +384,7 @@ export function makeFixtures(now = dayjs()): Db {
         sesId += 1;
         const start = day.hour(pick([20, 21, 22, 13])).minute(int(0, 59));
         const socStart = int(20, 65);
-        const maxEnergy = Math.min(4.5, ((v.socCapPct - socStart) / 100) * v.batteryKwh);
+        const maxEnergy = Math.min(maxSessionKwh(v), ((v.socCapPct - socStart) / 100) * v.batteryKwh);
         const energy = round2(between(0.4, Math.max(0.5, maxEnergy)));
         const durMin = Math.round((energy / connector.powerKw) * 60) + int(8, 35);
         sessions.push({
@@ -353,8 +421,9 @@ export function makeFixtures(now = dayjs()): Db {
       sesId += 1;
       const v = pick(hubVehicles);
       const connector = availableConnector(cp);
-      const energy = round2(between(0.6, 3.5));
+      const energy = round2(between(0.6, Math.min(3.5, maxSessionKwh(v))));
       const durMin = Math.round((energy / connector.powerKw) * 60) + int(8, 25);
+      const delivered = deliveredKwh(cp, energy);
       const end = now.subtract(endMinsAgo(), "minute");
       const start = end.subtract(durMin, "minute");
       const socStart = int(25, 60);
@@ -367,24 +436,30 @@ export function makeFixtures(now = dayjs()): Db {
         driverName: drivers.find((dr) => dr.vehicleReg === v.reg)?.name ?? "—",
         startTime: start.toISOString(),
         endTime: end.toISOString(),
-        energyKwh: energy,
+        energyKwh: delivered,
         socStart,
-        socEnd: Math.min(v.socCapPct, socStart + Math.round((energy / v.batteryKwh) * 100)),
+        socEnd: Math.min(v.socCapPct, socStart + Math.round((delivered / v.batteryKwh) * 100)),
         cost: 0,
         status: "Completed",
         stopReason: pick(["EVDisconnected", "EVDisconnected", "Remote"]),
       });
     }
   }
-  // One guaranteed live session on a healthy charger, so the ongoing badge,
-  // live-status card and calendar always have a fixture example too.
-  {
+  // Guaranteed live sessions, so the ongoing badge, live-status card and
+  // calendar always have a fixture example. One per working site rather than
+  // one in total: with a single live session the Charging Sessions page only
+  // ever showed a Six Mile vehicle charging now, and the hub filter over the
+  // live block had nothing to narrow.
+  const liveCps = [usableCps[0], ...usableCps.filter((c) => c.hub === HUBS[2].name).slice(0, 1)]
+    .filter((cp, i, list) => cp && list.indexOf(cp) === i);
+  for (const cp of liveCps) {
     sesId += 1;
-    const cp = usableCps[0];
     const connector = availableConnector(cp);
     // The vehicle has to belong to the hub it is plugged into, or the hub page
     // lists a vehicle that is charging somewhere else.
-    const v = vehicles.find((veh) => veh.hub === cp.hub) ?? vehicles[0];
+    const v = vehicles.find((veh) => veh.hub === cp.hub && veh.status !== "Charging")
+      ?? vehicles.find((veh) => veh.hub === cp.hub)
+      ?? vehicles[0];
     // Only just plugged in: a reset should leave plenty of room to watch the
     // simulation climb rather than dropping you in near the target SoC.
     const elapsedMin = int(4, 12);
@@ -414,6 +489,76 @@ export function makeFixtures(now = dayjs()): Db {
     v.status = "Charging";
     v.soc = Math.min(v.socCapPct, socStart + gainedPct);
   }
+  // ---- charging away from our hubs (telematics-detected) ------------------
+  // Production carries these on the Eco Mobility cars: the pack fills up
+  // somewhere that isn't ours, so no charger of ours reports a transaction and
+  // the only evidence is the vehicle's own SoC climbing. They land as "Outside
+  // Hub" everywhere sessions are grouped by location.
+  //
+  // Only the 4W fleet — a public point takes a CCS car, not a 3W cargo lead —
+  // and only a handful over the fortnight, which is the rate the real fleet
+  // does it at. The power also explains the repeated-fast-charging alerts:
+  // these are the sessions that trip the >11 kW threshold.
+  const PUBLIC_TARIFF_INR_PER_KWH = 18;
+  const OUTSIDE_SESSIONS: {
+    reg: string;
+    /** Measured back from now, so the newest stays recent whenever it seeds. */
+    hoursAgo: number;
+    kwh: number;
+    kw: number;
+    spot: { name?: string; address: string; lat: number; lng: number };
+  }[] = [
+    // The newest is hours old, not days: an outside-hub charge has to be
+    // visible on the first page of the sessions list, next to the hub ones.
+    //
+    // No `name` on any of them: these are charges we can place but not name, so
+    // every one reads as "Outside Hub". (The tag rule still has the geekblue
+    // named-public-location case production uses — nothing here triggers it.)
+    // The address stays for the detail page and its map.
+    { reg: "HR55AX1290", hoursAgo: 6, kwh: 21.4, kw: 28,
+      spot: { address: "Ambience Mall, NH-8, Gurugram 122002", lat: 28.5045, lng: 77.0968 } },
+    { reg: "HR55AX9090", hoursAgo: 27, kwh: 24.6, kw: 30,
+      spot: { address: "IGI Airport T3 car park, New Delhi 110037", lat: 28.5562, lng: 77.0999 } },
+    { reg: "HR55AX1925", hoursAgo: 4 * 24 + 3, kwh: 12.9, kw: 22,
+      spot: { address: "Vasant Kunj Mall Road, New Delhi 110070", lat: 28.52, lng: 77.1591 } },
+    { reg: "HR55AX1290", hoursAgo: 7 * 24 + 8, kwh: 17.8, kw: 25,
+      spot: { address: "Dwarka Sector 21 Metro, New Delhi 110077", lat: 28.5522, lng: 77.0583 } },
+    { reg: "HR55AX9090", hoursAgo: 11 * 24 + 5, kwh: 19.2, kw: 27,
+      spot: { address: "Ambience Mall, NH-8, Gurugram 122002", lat: 28.5045, lng: 77.0968 } },
+  ];
+  for (const o of OUTSIDE_SESSIONS) {
+    const v = vehicles.find((veh) => veh.reg === o.reg);
+    if (!v) continue;
+    sesId += 1;
+    const start = now.subtract(o.hoursAgo, "hour").minute(int(0, 55)).second(0);
+    // Fast charging is why the vehicle stopped here, so the whole session is
+    // the energy over the delivered power, plus a couple of minutes of
+    // handshake and unplugging.
+    const durMin = Math.round((o.kwh / o.kw) * 60) + int(3, 7);
+    const gainedPct = Math.round((o.kwh / v.batteryKwh) * 100);
+    const socStart = int(16, 30);
+    sessions.push({
+      id: `CS-${String(sesId).padStart(5, "0")}`,
+      // No charger of ours: this is what makes it read as Outside Hub.
+      chargerId: "",
+      chargerName: "",
+      connectorId: 0,
+      vehicleReg: v.reg,
+      driverName: drivers.find((dr) => dr.vehicleReg === v.reg)?.name ?? "—",
+      startTime: start.toISOString(),
+      endTime: start.add(durMin, "minute").toISOString(),
+      energyKwh: o.kwh,
+      socStart,
+      socEnd: Math.min(100, socStart + gainedPct),
+      // Unlike a hub session, a public charge comes with its own receipt.
+      cost: round2(o.kwh * PUBLIC_TARIFF_INR_PER_KWH),
+      status: "Completed",
+      stopReason: "EVDisconnected",
+      detectionSource: "TELEMATICS",
+      location: o.spot,
+    });
+  }
+
   sessions.sort((a, b) => (a.startTime < b.startTime ? 1 : -1));
 
   // ---- alerts (telemetry vehicle alerts) ----------------------------------
@@ -483,10 +628,10 @@ export function makeFixtures(now = dayjs()): Db {
     },
     {
       // Only the 4W fleet raises this one. The 3W cargo vehicles have no fast
-      // charging to repeat — the Ape and the ZOR take a single-phase AC lead
-      // and charge off the depot's 3.3 kW points, so they can never cross a
-      // fast-charge threshold. On the MG's 50 kWh pack, 11 kW is the line
-      // between the depot AC and a public top-up.
+      // charging to repeat — the Ape and the ZOR take a 3-pin lead and charge
+      // off the depot's 3.3 kW points, so they can never cross a fast-charge
+      // threshold. For the MG, 11 kW is the line between its own hub's 7.4 kW
+      // Type 2 socket and a public top-up.
       alertType: "repeated_fast_charging",
       severity: "warning",
       weight: 5,
@@ -569,7 +714,8 @@ export function makeFixtures(now = dayjs()): Db {
     }
     const faulted = cp.connectors.find((cn) => cn.status === "Faulted");
     if (faulted) {
-      const since = int(3, 30);
+      // Azara's is the one with history behind it, so it keeps the fixed hour.
+      const since = cp.hub === HUBS[1].name ? AZARA_FAULT_HOURS_AGO : int(3, 30);
       chargerWarnings.push({
         id: `cw-${chargerWarnings.length + 1}`,
         charger: { id: cp.id, name: cp.name, hub: cp.hub },

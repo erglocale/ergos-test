@@ -538,7 +538,11 @@ export default function SessionsAnalytics() {
     return [...map.values()].sort((a, b) => b.totalKwh - a.totalKwh);
   }, [sessionsInRange, db.chargepoints]);
 
-  const activeHubCount = hubAnalytics.filter((h) => h.sessionCount > 0).length;
+  // "Outside Hub" is where sessions happened, not a site we run — it is a row
+  // in the breakdown but must not be counted as one of the hubs.
+  const ourHubs = hubAnalytics.filter((h) => !/outside/i.test(h.hubName));
+  const activeHubCount = ourHubs.filter((h) => h.sessionCount > 0).length;
+  const outsideRow = hubAnalytics.find((h) => /outside/i.test(h.hubName));
 
   const metricConfig = {
     kwh: {
@@ -594,7 +598,12 @@ export default function SessionsAnalytics() {
         <SummaryCard
           label="Charging Locations"
           value={activeHubCount}
-          sub={`active of ${hubAnalytics.length} hub${hubAnalytics.length === 1 ? "" : "s"}`}
+          sub={
+            `active of ${ourHubs.length} hub${ourHubs.length === 1 ? "" : "s"}` +
+            (outsideRow
+              ? ` · ${outsideRow.sessionCount} outside hub`
+              : "")
+          }
         />
       </div>
 
