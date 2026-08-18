@@ -13,6 +13,7 @@ import type {
   Trip,
   Vehicle,
   Wallet,
+  WorkOrder,
 } from "./types";
 
 // Deterministic PRNG so the demo data is identical on every reset.
@@ -797,6 +798,11 @@ export function makeFixtures(now = dayjs()): Db {
     { name: "Sneha Dutta", role: "Viewer" as const, status: "Active" as const },
     { name: "Vikram Singh", role: "Viewer" as const, status: "Invited" as const },
     { name: "Nilim Hazarika", role: "Fleet Manager" as const, status: "Disabled" as const },
+    // Technicians are who the work actually gets assigned to: one per site, so
+    // a fault at any hub has someone local to send.
+    { name: "Ravi Kalita", role: "Technician" as const, status: "Active" as const },
+    { name: "Imran Ali", role: "Technician" as const, status: "Active" as const },
+    { name: "Deepak Nath", role: "Technician" as const, status: "Active" as const },
   ].map((u, i) => ({
     id: `usr-${i + 1}`,
     name: u.name,
@@ -898,6 +904,224 @@ export function makeFixtures(now = dayjs()): Db {
     }
   }
 
+  // ---- work orders --------------------------------------------------------
+  // Work a fleet manager has already handed out. Every seeded order points at a
+  // row that genuinely exists on the alerts or maintenance page, so opening one
+  // and clicking through to its source lands somewhere real. The mix covers all
+  // four statuses so the board's filters and tiles have something in each.
+  const technicians = users.filter((u) => u.role === "Technician");
+  const manager = users.find((u) => u.role === "Fleet Manager")?.name ?? "Fleet Manager";
+  // One technician per site — work goes to whoever is local to it, so a
+  // Guwahati fault is never handed to the person covering Delhi.
+  const TECH_BY_HUB: Record<string, PortalUser | undefined> = {
+    [HUBS[0].name]: technicians[0],
+    [HUBS[1].name]: technicians[2],
+    [HUBS[2].name]: technicians[1],
+  };
+  const techFor = (hub: string | null | undefined) =>
+    (hub ? TECH_BY_HUB[hub] : undefined) ?? technicians[0];
+  const workOrders: WorkOrder[] = [];
+  const raiseWorkOrder = (o: {
+    source: WorkOrder["source"];
+    sourceId: string | null;
+    subject: string;
+    subjectHref: string | null;
+    hub: string | null;
+    title: string;
+    details: string | null;
+    priority: WorkOrder["priority"];
+    assignee: PortalUser | undefined;
+    status: WorkOrder["status"];
+    dueDate: string | null;
+    /** Oldest first; hours before "now". */
+    activity: { hoursAgo: number; by: string; text: string }[];
+  }) => {
+    const idx = workOrders.length + 1;
+    const events = o.activity.map((e) => ({
+      at: now.subtract(e.hoursAgo, "hour").toISOString(),
+      by: e.by,
+      text: e.text,
+    }));
+    const createdAt = events[0]?.at ?? now.toISOString();
+    const updatedAt = events[events.length - 1]?.at ?? createdAt;
+    workOrders.push({
+      id: `wo-${idx}`,
+      ref: `WO-${1040 + idx}`,
+      source: o.source,
+      sourceId: o.sourceId,
+      subject: o.subject,
+      subjectHref: o.subjectHref,
+      hub: o.hub,
+      title: o.title,
+      details: o.details,
+      priority: o.priority,
+      assigneeId: o.assignee?.id ?? null,
+      status: o.status,
+      dueDate: o.dueDate,
+      createdAt,
+      updatedAt,
+      closedAt: o.status === "Done" ? updatedAt : null,
+      activity: events,
+    });
+  };
+
+  // Azara's whole unit is down pending electrical work, so that is the one
+  // already dispatched. Six Mile's single dead socket is deliberately left
+  // unassigned — the board needs a live fault to hand out during the demo.
+  const openFaults = chargerWarnings.filter(
+    (w) => w.warningObject.type === "ConnectorFaulted" && w.warningObject.status === "New",
+  );
+  const faultedWarning =
+    openFaults.find((w) => w.charger.hub === HUBS[1].name) ?? openFaults[0];
+  if (faultedWarning) {
+    const conn = faultedWarning.connector?.connectorId ?? 1;
+    raiseWorkOrder({
+      source: "CHARGER_WARNING",
+      sourceId: faultedWarning.id,
+      subject: faultedWarning.charger.name,
+      subjectHref: `/chargingStations/${faultedWarning.charger.id}`,
+      hub: faultedWarning.charger.hub,
+      title: `Repair faulted connector ${conn}`,
+      details: `Remote reset connector ${conn}. If unresolved, dispatch maintenance.`,
+      priority: "Critical",
+      assignee: techFor(faultedWarning.charger.hub),
+      status: "In progress",
+      dueDate: now.format("YYYY-MM-DD"),
+      activity: [
+        { hoursAgo: 12, by: manager, text: "Work order raised from charger alert" },
+        {
+          hoursAgo: 12,
+          by: manager,
+          text: `Assigned to ${techFor(faultedWarning.charger.hub)?.name ?? "technician"}`,
+        },
+        {
+          hoursAgo: 3,
+          by: techFor(faultedWarning.charger.hub)?.name ?? "Technician",
+          text: "On site. Remote reset did not clear it — opening the socket housing.",
+        },
+      ],
+    });
+  }
+
+  const offlineWarning = chargerWarnings.find(
+    (w) => w.warningObject.type === "ChargerOffline" && w.warningObject.status === "New",
+  );
+  if (offlineWarning) {
+    raiseWorkOrder({
+      source: "CHARGER_WARNING",
+      sourceId: offlineWarning.id,
+      subject: offlineWarning.charger.name,
+      subjectHref: `/chargingStations/${offlineWarning.charger.id}`,
+      hub: offlineWarning.charger.hub,
+      title: "Restore charger communication",
+      details: "Check the site network. If unresolved within an hour, dispatch maintenance.",
+      priority: "High",
+      assignee: techFor(offlineWarning.charger.hub),
+      status: "Open",
+      dueDate: now.add(1, "day").format("YYYY-MM-DD"),
+      activity: [
+        { hoursAgo: 5, by: manager, text: "Work order raised from charger alert" },
+        {
+          hoursAgo: 5,
+          by: manager,
+          text: `Assigned to ${techFor(offlineWarning.charger.hub)?.name ?? "technician"}`,
+        },
+      ],
+    });
+  }
+
+  // Spread the seeded work across the sites rather than piling it on one
+  // technician: the servicing job goes to a Delhi car if there is one overdue.
+  const overdueTasks = maintenanceTasks.filter(
+    (t) => t.dueDate !== null && dayjs(t.dueDate).isBefore(now, "day"),
+  );
+  const overdueTask =
+    overdueTasks.find(
+      (t) => vehicles.find((x) => x.id === t.evId)?.hub === HUBS[2].name,
+    ) ?? overdueTasks[0];
+  if (overdueTask) {
+    const v = vehicles.find((x) => x.id === overdueTask.evId);
+    raiseWorkOrder({
+      source: "MAINTENANCE_TASK",
+      sourceId: overdueTask.id,
+      subject: v?.reg ?? overdueTask.evId,
+      subjectHref: v ? `/vehicles/${v.id}` : null,
+      hub: v?.hub ?? null,
+      title: `${overdueTask.title} — overdue`,
+      details: `Book the vehicle in and log the service against ${overdueTask.title.toLowerCase()}.`,
+      priority: "High",
+      assignee: techFor(v?.hub),
+      status: "Open",
+      dueDate: overdueTask.dueDate,
+      activity: [
+        { hoursAgo: 30, by: manager, text: "Work order raised from maintenance task" },
+        { hoursAgo: 30, by: manager, text: `Assigned to ${techFor(v?.hub)?.name ?? "technician"}` },
+      ],
+    });
+  }
+
+  const fixedOffline = chargerWarnings.filter(
+    (w) => w.warningObject.type === "ChargerOffline" && w.warningObject.status === "Fixed",
+  );
+  const fixedWarning =
+    fixedOffline.find((w) => w.charger.hub === HUBS[2].name) ?? fixedOffline[0];
+  if (fixedWarning) {
+    raiseWorkOrder({
+      source: "CHARGER_WARNING",
+      sourceId: fixedWarning.id,
+      subject: fixedWarning.charger.name,
+      subjectHref: `/chargingStations/${fixedWarning.charger.id}`,
+      hub: fixedWarning.charger.hub,
+      title: "Investigate repeated network dropouts",
+      details: "Check SIM signal and router placement at site.",
+      priority: "Medium",
+      assignee: techFor(fixedWarning.charger.hub),
+      status: "Done",
+      dueDate: now.subtract(2, "day").format("YYYY-MM-DD"),
+      activity: [
+        { hoursAgo: 96, by: manager, text: "Work order raised from charger alert" },
+        {
+          hoursAgo: 96,
+          by: manager,
+          text: `Assigned to ${techFor(fixedWarning.charger.hub)?.name ?? "technician"}`,
+        },
+        {
+          hoursAgo: 70,
+          by: techFor(fixedWarning.charger.hub)?.name ?? "Technician",
+          text: "Router moved out of the metal enclosure, signal up from 1 to 4 bars.",
+        },
+        {
+          hoursAgo: 68,
+          by: techFor(fixedWarning.charger.hub)?.name ?? "Technician",
+          text: "Marked done",
+        },
+      ],
+    });
+  }
+
+  raiseWorkOrder({
+    source: "MANUAL",
+    sourceId: null,
+    subject: chargepoints[0]?.name ?? HUBS[0].name,
+    subjectHref: chargepoints[0] ? `/chargingStations/${chargepoints[0].id}` : null,
+    hub: HUBS[0].name,
+    title: "Replace RFID reader",
+    details: "Reader accepts the card but does not start a session. Spare on order.",
+    priority: "Low",
+    assignee: techFor(HUBS[0].name),
+    status: "Blocked",
+    dueDate: now.add(6, "day").format("YYYY-MM-DD"),
+    activity: [
+      { hoursAgo: 50, by: manager, text: "Work order raised" },
+      { hoursAgo: 50, by: manager, text: `Assigned to ${techFor(HUBS[0].name)?.name ?? "technician"}` },
+      {
+        hoursAgo: 26,
+        by: techFor(HUBS[0].name)?.name ?? "Technician",
+        text: "Blocked — no spare reader in stock, supplier quotes 5 days.",
+      },
+    ],
+  });
+
   return {
     profile: {
       firstName: "Demo",
@@ -920,5 +1144,6 @@ export function makeFixtures(now = dayjs()): Db {
     suggestions,
     maintenanceTasks,
     maintenanceRecords,
+    workOrders,
   };
 }

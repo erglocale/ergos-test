@@ -43,8 +43,14 @@ import {
 import TaskFormModal, {
   TaskFormPayload,
 } from "@/components/maintenance/TaskFormModal";
+import WorkOrderCell from "@/components/workOrders/WorkOrderCell";
+import { closeWorkOrdersForSource } from "@/components/workOrders/workOrderUtils";
 import { createRow, nextId, removeRow, updateRow, useDb } from "@/data/store";
-import type { MaintenanceRecord, MaintenanceTask } from "@/data/types";
+import type {
+  MaintenanceRecord,
+  MaintenanceTask,
+  WorkOrderPriority,
+} from "@/data/types";
 
 const { Title } = Typography;
 
@@ -128,6 +134,15 @@ function VehicleCell({ ev }: { ev: MaintenanceEv | null }) {
     </Link>
   );
 }
+
+// How urgent the job is when it is handed to someone: already late is this
+// week's work, due soon is next week's, everything else is planning.
+const WORK_PRIORITY: Record<DueStatus, WorkOrderPriority> = {
+  OVERDUE: "High",
+  DUE_SOON: "Medium",
+  ON_TRACK: "Low",
+  UNKNOWN: "Low",
+};
 
 const formatKm = (value: number | null | undefined) =>
   value != null ? `${Math.round(Number(value)).toLocaleString()} km` : null;
@@ -221,6 +236,27 @@ function VehicleStatusTab({
       title: "Status",
       key: "status",
       render: (_, row) => <StatusPill dueStatus={row.dueStatus} />,
+    },
+    {
+      title: "Assigned",
+      key: "assigned",
+      render: (_, row) => (
+        <WorkOrderCell
+          prefill={{
+            source: "MAINTENANCE_TASK",
+            sourceId: row.id,
+            subject: row.Ev?.licensePlate ?? `EV #${row.evId}`,
+            subjectHref: `/vehicles/${row.evId}`,
+            hub: null,
+            title: row.title,
+            details:
+              row.description ??
+              `Book the vehicle in and log the service against ${row.title.toLowerCase()}.`,
+            priority: WORK_PRIORITY[row.dueStatus],
+            dueDate: row.dueDate,
+          }}
+        />
+      ),
     },
     {
       title: "Actions",
@@ -469,6 +505,9 @@ export default function Maintenance() {
     ) {
       updateRow("vehicles", task.evId, { odometerKm: payload.odometerKm });
     }
+    // The job is done, so anything still assigned against it is done too —
+    // otherwise the board keeps showing work that has already been carried out.
+    closeWorkOrdersForSource(task.id, "Closed automatically — service logged");
     if (task.isRecurring) {
       // Roll the next due point forward from the service just logged.
       const anchorKm = payload.odometerKm ?? task.currentKm ?? 0;
@@ -490,6 +529,7 @@ export default function Maintenance() {
   };
 
   const handleDelete = (row: EnrichedMaintenanceTask) => {
+    closeWorkOrdersForSource(row.id, "Closed automatically — task deleted");
     removeRow("maintenanceTasks", row.id);
     messageApi.success("Task deleted");
   };

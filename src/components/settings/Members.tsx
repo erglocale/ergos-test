@@ -233,6 +233,7 @@ export default function Members() {
               options={[
                 { value: "Admin", label: "Admin" },
                 { value: "Fleet Manager", label: "Fleet Manager" },
+                { value: "Technician", label: "Technician" },
                 { value: "Viewer", label: "Viewer" },
               ]}
             />

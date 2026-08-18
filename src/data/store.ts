@@ -8,7 +8,6 @@ import {
   advance,
   chargePowerKw,
   plannedPowerKw,
-  taperFactor,
   type SimInputs,
   type SimState,
 } from "./liveSim";
@@ -23,7 +22,9 @@ import type { CollectionKey, Db, Profile } from "./types";
 //      drivers on the Kapashera cars so their sessions are fleet sessions.
 // v22: outside-hub sessions carry no public location name — the tag reads
 //      "Outside Hub", not the name of the place.
-const DB_KEY = "ergos-test:db:v22";
+// v23: work orders, and the technicians they get assigned to. The collection
+//      itself would backfill on its own, but the new portal users would not.
+const DB_KEY = "ergos-test:db:v23";
 
 let cache: Db | null = null;
 // Live rows from energy-brain, merged (not persisted) on top of the fixtures.
@@ -373,11 +374,7 @@ export function tickSimulation(nowMs: number = Date.now()): void {
         ? base
         : {
             ...base,
-            // chargePowerKw re-applies the SoC taper, so hand it the share
-            // before taper to land on exactly want × scale.
-            plannedKw:
-              ((wantById.get(s.id) ?? 0) * scale) /
-              taperFactor(simStates.get(s.id)?.soc ?? vehicle?.soc ?? s.socStart),
+            plannedKw: (wantById.get(s.id) ?? 0) * scale,
           };
 
     const stored = simStates.get(s.id);

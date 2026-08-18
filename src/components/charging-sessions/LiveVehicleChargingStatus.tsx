@@ -1,10 +1,11 @@
 "use client";
 
 import { Pagination, Typography } from "antd";
+import dayjs from "dayjs";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import VehiclePhoto from "@/components/vehicles/vehiclePhoto";
-import { etaMinutes } from "@/data/liveSim";
+import { etaMinutes, nextPlannedStartMs } from "@/data/liveSim";
 import { useDb, useSimStates } from "@/data/store";
 
 const { Title } = Typography;
@@ -78,14 +79,24 @@ export default function LiveVehicleChargingStatus({
     verticalAlign: "top",
   };
 
-  const readyText = (minutes: number | null, soc: number, targetSoc: number) => {
+  const readyText = (
+    minutes: number | null,
+    soc: number,
+    targetSoc: number,
+    startsAtMs: number | null,
+  ) => {
     // Drawing nothing has two very different causes. A vehicle that has reached
     // its charge limit is done — it was showing "waiting for its charging slot",
     // which reads as a vehicle being held back rather than a finished one.
     if (soc >= targetSoc - 0.05) return "Fully charged";
-    // Otherwise there is no power because the optimizer has parked this vehicle
-    // until a cheaper/sunnier slot, and an ETA would be meaningless.
-    if (minutes === null) return "Waiting for its charging slot";
+    if (minutes === null) {
+      // Otherwise there is no power because the optimizer has parked this
+      // vehicle until a cheaper slot. The plan knows which slot, so say so —
+      // an open-ended "waiting" for hours reads as something being stuck.
+      return startsAtMs
+        ? `Charging starts ${dayjs(startsAtMs).format("h:mm A")}`
+        : "Waiting for its charging slot";
+    }
     if (minutes < 5) return "Ready in few minutes";
     return `Ready in ${minutes} min`;
   };
@@ -174,7 +185,14 @@ export default function LiveVehicleChargingStatus({
                   </div>
                   <div style={{ fontSize: "14px", color: "#555" }}>
                     {`SoC: ${Number(soc).toFixed(1)}%, `}
-                    {readyText(eta, soc, vehicle?.socCapPct ?? 100)}
+                    {readyText(
+                      eta,
+                      soc,
+                      vehicle?.socCapPct ?? 100,
+                      state && powerKw <= 0
+                        ? nextPlannedStartMs(session.id, state.updatedAt)
+                        : null,
+                    )}
                     <span style={{ color: powerKw > 0 ? "#16a34a" : "#9ca3af", fontWeight: 600 }}>
                       {` · ${powerKw.toFixed(2)} kW`}
                     </span>

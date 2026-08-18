@@ -24,8 +24,6 @@ import { fetchPredictedSchedules, type PredictedPoint } from "./energyBrain";
 const MAX_STEP_HOURS = 0.25;
 /** AC losses: metered energy is a little higher than what reaches the pack. */
 const CHARGE_EFFICIENCY = 0.93;
-const TAPER_FROM_SOC = 80;
-const TAPER_FLOOR = 0.2;
 /** Optimizer profiles are emitted on a 15-minute grid. */
 const PLAN_STEP_MS = 15 * 60_000;
 
@@ -51,21 +49,19 @@ export interface SimInputs {
   plannedKw: number | null;
 }
 
-/** Constant-current below 80 % SoC, then a linear taper toward the top. */
-export function taperFactor(soc: number): number {
-  if (soc <= TAPER_FROM_SOC) return 1;
-  const f = Math.min(1, (soc - TAPER_FROM_SOC) / (100 - TAPER_FROM_SOC));
-  return Math.max(TAPER_FLOOR, 1 - f * (1 - TAPER_FLOOR));
-}
-
-/** kW the session can actually draw right now. */
+/**
+ * kW the session can actually draw right now. Flat: the socket's rating (or
+ * whatever the optimizer allowed) until the target SoC, then nothing. No
+ * constant-voltage taper near the top — a demo reads better with a charge that
+ * moves at one rate than with one that crawls through its last fifth.
+ */
 export function chargePowerKw(soc: number, i: SimInputs): number {
   if (soc >= i.targetSoc) return 0;
   const ceiling = Math.min(i.connectorKw, i.vehicleMaxKw ?? i.connectorKw);
   // A planned 0 kW is the optimizer deliberately parking this vehicle, so it
   // must be honoured rather than treated as "no plan".
   const allowed = i.plannedKw === null ? ceiling : Math.min(i.plannedKw, ceiling);
-  return Math.round(allowed * taperFactor(soc) * 100) / 100;
+  return Math.round(allowed * 100) / 100;
 }
 
 /** Integrate one session forward to `nowMs`. */
@@ -88,25 +84,13 @@ export function advance(state: SimState, i: SimInputs, nowMs: number): SimState 
 }
 
 /**
- * Minutes until the target SoC, or null when parked.
- *
- * Integrated in 1 % steps rather than divided by the current power, because
- * power is not constant: above 80 % the taper takes it down toward a fifth of
- * the rating, and a flat extrapolation promises a finish time the session
- * cannot meet. The error grows with the socket — a 7.4 kW car charging to 100 %
- * was reading about 20 % early.
+ * Minutes until the target SoC at the current power, or null when parked.
+ * Power is flat, so this is exact rather than an extrapolation.
  */
 export function etaMinutes(state: SimState, i: SimInputs): number | null {
   if (state.powerKw <= 0) return null;
-  const kwhPerPct = i.batteryKwh / 100;
-  let hours = 0;
-  for (let soc = state.soc; soc < i.targetSoc; soc += 1) {
-    const step = Math.min(1, i.targetSoc - soc);
-    const kw = chargePowerKw(soc, i);
-    if (kw <= 0) break;
-    hours += (step * kwhPerPct) / (kw * CHARGE_EFFICIENCY);
-  }
-  return Math.round(hours * 60);
+  const remainingKwh = Math.max(0, ((i.targetSoc - state.soc) / 100) * i.batteryKwh);
+  return Math.round((remainingKwh / (state.powerKw * CHARGE_EFFICIENCY)) * 60);
 }
 
 // ---- Optimizer plan cache ---------------------------------------------------
@@ -144,6 +128,22 @@ export async function refreshSchedules(): Promise<void> {
   // An empty result usually means "optimizer unavailable", not "no plan"; keep
   // the previous profiles so live blocks don't blink out on a transient error.
   if (next.length > 0 || planSnapshot.length === 0) setSchedules(next);
+}
+
+/**
+ * When the optimizer next gives this session power, or null if it has no plan
+ * or nothing further in it. A vehicle sitting at 0 kW is waiting for a slot,
+ * and the plan already says which one — so the wait can be reported as a time
+ * rather than as an open-ended "waiting".
+ */
+export function nextPlannedStartMs(sessionId: string, atMs: number): number | null {
+  const points = schedules.get(sessionId);
+  if (!points?.length) return null;
+  for (const p of points) {
+    const t = new Date(p.time).getTime();
+    if (t >= atMs && p.limit > 0) return t;
+  }
+  return null;
 }
 
 /**

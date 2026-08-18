@@ -1,5 +1,4 @@
 import dayjs, { type Dayjs } from "dayjs";
-import { taperFactor } from "@/data/liveSim";
 import type { ChargingSession, Trip, Vehicle } from "@/data/types";
 
 export function fmtDateTime(iso: string | number | null | undefined): string {
@@ -175,35 +174,11 @@ export function chargeWindowsFor(
 }
 
 /**
- * SoC as a fraction of the way through a charge. Not linear: the rate is
- * shaped by the same taper the live simulator uses, so a charge crossing 80 %
- * visibly slows down. Returns a sampler so the integration is done once per
- * window rather than once per point.
+ * SoC as a fraction of the way through a charge — linear, at the same flat
+ * rate the live simulator charges at.
  */
 function chargeCurve(socStart: number, socEnd: number): (progress: number) => number {
-  if (socEnd <= socStart) {
-    return (p) => socStart + (socEnd - socStart) * Math.min(1, Math.max(0, p));
-  }
-  const STEPS = 48;
-  const dSoc = (socEnd - socStart) / STEPS;
-  // How long each equal slice of SoC takes, in arbitrary units.
-  const slices: number[] = [];
-  let total = 0;
-  for (let i = 0; i < STEPS; i += 1) {
-    const dt = dSoc / taperFactor(socStart + dSoc * (i + 0.5));
-    slices.push(dt);
-    total += dt;
-  }
-  return (progress) => {
-    let want = Math.min(1, Math.max(0, progress)) * total;
-    let soc = socStart;
-    for (let i = 0; i < STEPS; i += 1) {
-      if (want <= slices[i]) return soc + dSoc * (want / slices[i]);
-      want -= slices[i];
-      soc += dSoc;
-    }
-    return socEnd;
-  };
+  return (p) => socStart + (socEnd - socStart) * Math.min(1, Math.max(0, p));
 }
 
 /**

@@ -13,6 +13,7 @@ import relativeTime from "dayjs/plugin/relativeTime";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { rangePresets } from "@/components/home/FleetAndChargerHostLayout";
+import WorkOrderCell from "@/components/workOrders/WorkOrderCell";
 import { useDb } from "@/data/store";
 import {
   type ChargerWarningRow,
@@ -21,8 +22,10 @@ import {
   TYPE_BAR_COLOR,
   type WarnSeverity,
   type WarnStatus,
+  type WarnType,
   buildChargerWarningRows,
 } from "./chargerWarningRows";
+import type { WorkOrderPriority } from "@/data/types";
 import WarningBreakdown, { type BreakdownRow } from "./WarningBreakdown";
 import { DATE_FORMAT } from "@/lib/dateFormat";
 
@@ -40,6 +43,24 @@ const STATUS_TAG_COLOR: Record<WarnStatus, string> = {
 };
 
 const SEVERITY_ORDER: WarnSeverity[] = ["Critical", "Warning", "Predicted"];
+
+// How urgent the work is when a warning is handed to someone. A prediction is
+// real work but not today's work, so it starts a rung below a live fault.
+const WORK_PRIORITY: Record<WarnSeverity, WorkOrderPriority> = {
+  Critical: "Critical",
+  Warning: "High",
+  Predicted: "Medium",
+};
+
+// The job, phrased as an instruction. The row's recommended action carries the
+// detail, so the title only has to say what is being sent out.
+const WORK_TITLE: Record<WarnType, string> = {
+  "Connector faulted": "Repair faulted connector",
+  "Communication lost": "Restore charger communication",
+  "Session interrupted": "Investigate interrupted session",
+  "Throughput degraded": "Check supply voltage and cabling",
+  "Predicted fault": "Inspect connector latch before it fails",
+};
 
 export default function ChargerWarnings() {
   const router = useRouter();
@@ -179,10 +200,29 @@ export default function ChargerWarnings() {
       title: "Recommended Action",
       key: "action",
       width: 280,
+      // Assigning the work sits with the action it carries out, rather than in
+      // a column of its own off the right edge of the table.
       render: (_, r) => (
-        <Text style={{ color: "#0d9488", fontSize: 13 }} ellipsis={{ tooltip: r.action }}>
-          {r.action}
-        </Text>
+        <div>
+          <Text style={{ color: "#0d9488", fontSize: 13 }} ellipsis={{ tooltip: r.action }}>
+            {r.action}
+          </Text>
+          <div style={{ marginTop: 2 }}>
+            <WorkOrderCell
+              prefill={{
+                source: "CHARGER_WARNING",
+                sourceId: r.id,
+                subject: r.chargerName,
+                subjectHref: `/chargingStations/${r.chargerId}`,
+                hub: r.hub,
+                title: WORK_TITLE[r.type],
+                details: r.action,
+                priority: WORK_PRIORITY[r.severity],
+              }}
+              inline
+            />
+          </div>
+        </div>
       ),
     },
     {

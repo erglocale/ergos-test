@@ -154,7 +154,7 @@ export interface PortalUser {
   name: string;
   email: string;
   phone: string;
-  role: "Admin" | "Fleet Manager" | "Viewer";
+  role: "Admin" | "Fleet Manager" | "Viewer" | "Technician";
   status: "Active" | "Invited" | "Disabled";
   lastLoginAt: string | null;
 }
@@ -208,6 +208,46 @@ export interface MaintenanceRecord {
   notes: string | null;
 }
 
+// A unit of work a fleet manager hands to someone. A charger fault and an
+// overdue service are the same thing from their side — "this needs fixing, you
+// do it, tell me when it's done" — so both raise the same object rather than
+// two parallel systems. `source`/`sourceId` point back at whatever raised it.
+export type WorkOrderSource = "CHARGER_WARNING" | "MAINTENANCE_TASK" | "MANUAL";
+export type WorkOrderStatus = "Open" | "In progress" | "Blocked" | "Done";
+export type WorkOrderPriority = "Low" | "Medium" | "High" | "Critical";
+
+export interface WorkOrderEvent {
+  at: string;
+  /** Who acted — a portal user's name, or the signed-in demo user. */
+  by: string;
+  text: string;
+}
+
+export interface WorkOrder {
+  id: string;
+  /** Human reference, e.g. "WO-1042" — what people say out loud. */
+  ref: string;
+  source: WorkOrderSource;
+  /** ChargerWarningRow.id / MaintenanceTask.id, or null when raised by hand. */
+  sourceId: string | null;
+  /** What the work is on: "CP-2, Kapashera" or "HR55AX1290". */
+  subject: string;
+  /** Deep link to the subject, when there is one. */
+  subjectHref: string | null;
+  hub: string | null;
+  title: string;
+  details: string | null;
+  priority: WorkOrderPriority;
+  /** PortalUser.id, or null while unassigned. */
+  assigneeId: string | null;
+  status: WorkOrderStatus;
+  dueDate: string | null; // YYYY-MM-DD
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+  activity: WorkOrderEvent[];
+}
+
 export interface Profile {
   firstName: string;
   lastName: string;
@@ -232,6 +272,7 @@ export interface Db {
   suggestions: Suggestion[];
   maintenanceTasks: MaintenanceTask[];
   maintenanceRecords: MaintenanceRecord[];
+  workOrders: WorkOrder[];
 }
 
 export type CollectionKey = Exclude<keyof Db, "profile">;

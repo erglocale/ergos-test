@@ -15,7 +15,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AiFillHome } from "react-icons/ai";
 import { BiTrip } from "react-icons/bi";
-import { FaAddressCard, FaWarehouse, FaWrench } from "react-icons/fa";
+import { FaAddressCard, FaClipboardList, FaWarehouse, FaWrench } from "react-icons/fa";
 import { ImPower } from "react-icons/im";
 import { TbReportAnalytics } from "react-icons/tb";
 import EnergyBrainSync from "@/components/energy/EnergyBrainSync";
@@ -39,6 +39,7 @@ const MENU_ITEMS = [
   { label: "Suggestions", icon: <BulbOutlined style={ICON_COLOR} />, href: "/suggestions" },
   { label: "Reports", icon: <TbReportAnalytics style={ICON_COLOR} />, href: "/reports" },
   { label: "Maintenance", icon: <FaWrench style={ICON_COLOR} />, href: "/maintenance" },
+  { label: "Work Orders", icon: <FaClipboardList style={ICON_COLOR} />, href: "/workOrders" },
   { label: "Trips", icon: <BiTrip style={ICON_COLOR} />, href: "/trips" },
   { label: "Drivers", icon: <FaAddressCard style={ICON_COLOR} />, href: "/drivers" },
   { label: "Settings", icon: <SettingOutlined style={ICON_COLOR} />, href: "/settings" },
