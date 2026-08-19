@@ -455,6 +455,32 @@ export default function Maintenance() {
       });
       messageApi.success("Task updated");
     } else {
+      // Derive the first due point from the intervals when it was left blank,
+      // the same way the production create endpoint does: km counts forward
+      // from the odometer anchor, the date from today. A km interval on a
+      // vehicle with no reading yet stays underived — there is nothing to
+      // count from.
+      const anchorKm =
+        payload.currentOdometerKm ??
+        db.vehicles.find((v) => v.id === payload.evId)?.odometerKm ??
+        null;
+      const dueKm =
+        payload.dueKm ??
+        (payload.intervalKm != null && anchorKm != null
+          ? Math.round((anchorKm + payload.intervalKm) * 10) / 10
+          : null);
+      const dueDate =
+        payload.dueDate ??
+        (payload.intervalMonths != null
+          ? dayjs().add(payload.intervalMonths, "month").format("YYYY-MM-DD")
+          : null);
+      if (dueKm == null && dueDate == null) {
+        messageApi.error(
+          "Task needs a due point: give a due km or date, or an interval " +
+            "(km intervals also need an odometer reading).",
+        );
+        return;
+      }
       const row: MaintenanceTask = {
         id: nextId("maintenanceTasks", "mt"),
         evId: payload.evId,
@@ -464,8 +490,8 @@ export default function Maintenance() {
         isRecurring: payload.isRecurring,
         intervalKm: payload.intervalKm,
         intervalMonths: payload.intervalMonths,
-        dueKm: payload.dueKm,
-        dueDate: payload.dueDate,
+        dueKm,
+        dueDate,
         status: "ACTIVE",
         createdAt: new Date().toISOString(),
       };
