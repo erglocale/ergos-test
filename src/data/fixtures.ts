@@ -865,7 +865,9 @@ export function makeFixtures(now = dayjs()): Db {
   let taskIdx = 0;
   let recordIdx = 0;
   for (let i = 0; i < 9; i += 1) {
-    const v = vehicles[(i * 5 + 1) % vehicles.length];
+    // Step by 4 rather than 5: 5 divides 15, so the old stride cycled through
+    // three vehicles and gave every plate three tasks. This gives nine.
+    const v = vehicles[(i * 4 + 1) % vehicles.length];
     const tpl = TASK_TEMPLATES[i % TASK_TEMPLATES.length];
     taskIdx += 1;
     // Spread due points around "now": ~1/3 overdue, ~1/3 due soon, rest on track.
@@ -884,6 +886,7 @@ export function makeFixtures(now = dayjs()): Db {
       dueKm: i % 4 === 3 ? null : v.odometerKm + kmOffset,
       dueDate: i % 5 === 4 ? null : now.add(dayOffset, "day").format("YYYY-MM-DD"),
       status: "ACTIVE",
+      visit: null,
       createdAt: now.subtract(int(20, 180), "day").toISOString(),
     });
     if (rand() < 0.7) {
@@ -900,10 +903,33 @@ export function makeFixtures(now = dayjs()): Db {
         cost: int(4, 60) * 100,
         vendor: vendorFor(v),
         notes: pick(["", "", "Replaced worn parts", "Routine check, all OK", "Minor adjustment done"]) || null,
+        daysOffRoad: rand() < 0.4 ? int(1, 4) : null,
       });
     }
   }
 
+  // Two vehicles are away at a garage right now: one running to plan, one that
+  // has overrun the date the garage promised. A service takes days, so the
+  // board needs to show work in that state and not only "due" and "done".
+  const sendForService = (
+    task: MaintenanceTask | undefined,
+    daysIn: number,
+    expectedInDays: number | null,
+    note: string,
+  ) => {
+    if (!task) return;
+    const v = vehicles.find((x) => x.id === task.evId);
+    task.status = "IN_SERVICE";
+    task.visit = {
+      startedAt: now.subtract(daysIn, "day").format("YYYY-MM-DD"),
+      expectedReturn:
+        expectedInDays === null
+          ? null
+          : now.add(expectedInDays, "day").format("YYYY-MM-DD"),
+      vendor: v ? vendorFor(v) : null,
+      note,
+    };
+  };
   // ---- work orders --------------------------------------------------------
   // Work a fleet manager has already handed out. Every seeded order points at a
   // row that genuinely exists on the alerts or maintenance page, so opening one
@@ -1121,6 +1147,47 @@ export function makeFixtures(now = dayjs()): Db {
       },
     ],
   });
+
+  // Overdue jobs are the ones that actually get sent in, so pick from those —
+  // one per vehicle, or the fleet reads as one van with two open visits.
+  // Done after the work orders exist, so anything already assigned against the
+  // task follows the vehicle into the garage instead of still reading "Open".
+  const seenEv = new Set<string>();
+  const overdueForService = maintenanceTasks
+    .filter((t) => t.dueDate !== null)
+    // Soonest due first, so the two that go in are the two most overdue.
+    .sort((a, b) => (a.dueDate! < b.dueDate! ? -1 : 1))
+    .filter((t) => {
+      if (seenEv.has(t.evId)) return false;
+      seenEv.add(t.evId);
+      return true;
+    });
+  sendForService(overdueForService[0], 3, 1, "Awaiting brake pads from OEM");
+  sendForService(overdueForService[1], 6, -2, "Gearbox strip-down took longer than quoted");
+  for (const task of maintenanceTasks) {
+    if (task.status !== "IN_SERVICE" || !task.visit) continue;
+    const order = workOrders.find((o) => o.sourceId === task.id && o.status !== "Done");
+    if (!order) continue;
+    // The booking follows whatever the trail already says — a vehicle cannot
+    // go in before the work order that sent it there was raised.
+    const last = order.activity[order.activity.length - 1]?.at;
+    const booked = dayjs(task.visit.startedAt).hour(9);
+    const at =
+      last && booked.toISOString() <= last
+        ? dayjs(last).add(1, "hour").toISOString()
+        : booked.toISOString();
+    order.status = "In progress";
+    order.updatedAt = at;
+    order.activity.push({
+      at,
+      by: manager,
+      text: `Vehicle booked in${task.visit.vendor ? ` at ${task.visit.vendor}` : ""}${
+        task.visit.expectedReturn
+          ? `, expected back ${dayjs(task.visit.expectedReturn).format("DD MMM YYYY")}`
+          : ""
+      }`,
+    });
+  }
 
   return {
     profile: {

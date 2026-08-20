@@ -2,10 +2,14 @@
 
 import { Button, Card, Popconfirm, Space, Table, Tag, Tooltip } from "antd";
 import type { TableColumnsType } from "antd";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { FaHistory } from "react-icons/fa";
 import { FiCheckCircle, FiClock, FiRadio, FiSlash, FiXOctagon } from "react-icons/fi";
 import getDocumentSummaryByEntity from "@/components/drivers/documents";
+import {
+  vehiclesInService,
+  type VehicleServiceInfo,
+} from "@/components/maintenance/derive";
 import { removeRow, useDb } from "@/data/store";
 import type { Vehicle } from "@/data/types";
 import EditVehicleModal from "./EditVehicleModal";
@@ -99,6 +103,31 @@ function StatusTag({ vehicle }: { vehicle: Vehicle }) {
   );
 }
 
+/**
+ * A vehicle away at a garage. Sits alongside the telematics status rather than
+ * replacing it — the van may still report Idle from the workshop floor, and
+ * the running/idle counts are built on that.
+ */
+function InServiceTag({ info }: { info: VehicleServiceInfo }) {
+  const back = info.expectedReturn
+    ? `${info.returnOverdue ? "Was due back " : "Back "}${new Date(
+        info.expectedReturn,
+      ).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}`
+    : "No return date given";
+  return (
+    <Tooltip
+      title={`${info.title}${info.vendor ? ` · ${info.vendor}` : ""} · ${back}`}
+    >
+      <Tag
+        style={{ ...statusTagStyle, marginTop: 4 }}
+        color={info.returnOverdue ? "red" : "purple"}
+      >
+        In service · {info.daysInService === 0 ? "day 1" : `day ${info.daysInService + 1}`}
+      </Tag>
+    </Tooltip>
+  );
+}
+
 // Deterministic "telemetry updated n minutes ago" stand-in (fixtures carry no
 // telemetry timestamps).
 const fakeUpdatedMinutes = (id: string) => {
@@ -114,6 +143,7 @@ export default function VehiclesList({
   isLoading?: boolean;
 }) {
   const db = useDb();
+  const inService = useMemo(() => vehiclesInService(db), [db]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [openEditVehicleModal, setOpenEditVehicleModal] = useState(false);
 
@@ -240,7 +270,15 @@ export default function VehiclesList({
         if (value === "running") return record.status === "Driving";
         return record.status !== "Charging" && record.status !== "Driving";
       },
-      render: (_: unknown, vehicle) => <StatusTag vehicle={vehicle} />,
+      render: (_: unknown, vehicle) => {
+        const service = inService.get(vehicle.id);
+        return (
+          <div>
+            <StatusTag vehicle={vehicle} />
+            {service && <InServiceTag info={service} />}
+          </div>
+        );
+      },
     },
     {
       title: "Documents",

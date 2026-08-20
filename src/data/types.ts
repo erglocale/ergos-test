@@ -180,6 +180,17 @@ export interface Suggestion {
   status: "New" | "Applied" | "Dismissed";
 }
 
+// A vehicle handed over to a garage. A service is rarely instant — the van is
+// off the road for days — so the task sits in this state between "due" and
+// "done", and the fleet manager can see who has it and when it is coming back.
+export interface ServiceVisit {
+  startedAt: string; // YYYY-MM-DD
+  /** When the garage says it will be back. Null when they would not commit. */
+  expectedReturn: string | null;
+  vendor: string | null;
+  note: string | null;
+}
+
 export interface MaintenanceTask {
   id: string;
   evId: string; // Vehicle.id
@@ -191,7 +202,9 @@ export interface MaintenanceTask {
   intervalMonths: number | null;
   dueKm: number | null;
   dueDate: string | null; // YYYY-MM-DD
-  status: "ACTIVE" | "COMPLETED";
+  status: "ACTIVE" | "IN_SERVICE" | "COMPLETED";
+  /** Set while the vehicle is with a garage; cleared when the service is logged. */
+  visit: ServiceVisit | null;
   createdAt: string;
 }
 
@@ -206,6 +219,8 @@ export interface MaintenanceRecord {
   cost: number | null;
   vendor: string | null;
   notes: string | null;
+  /** How long the vehicle was off the road, when it was booked in first. */
+  daysOffRoad: number | null;
 }
 
 // A unit of work a fleet manager hands to someone. A charger fault and an

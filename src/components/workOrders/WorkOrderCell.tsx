@@ -18,6 +18,7 @@ import {
   isOverdue,
   primaryWorkOrder,
   STATUS_TAG_COLOR,
+  statusLabel,
 } from "./workOrderUtils";
 
 const { Text } = Typography;
@@ -102,6 +103,9 @@ export default function WorkOrderCell({
   const chip = (
     <Tag
       color={STATUS_TAG_COLOR[order.status]}
+      // The chip only has room for the reference, so the state it is coloured
+      // by is spelled out on hover — in this subject's words.
+      title={`${order.title} — ${statusLabel(order)}`}
       style={{ cursor: "pointer", marginInlineEnd: 0 }}
       onClick={(e) => {
         e.stopPropagation();
@@ -115,7 +119,9 @@ export default function WorkOrderCell({
   return (
     <>
       {compact ? (
-        <Tooltip title={`${order.ref} · ${order.status}${who ? ` · ${who}` : ""}`}>
+        <Tooltip
+          title={`${order.ref} · ${statusLabel(order)}${who ? ` · ${who}` : ""}`}
+        >
           {chip}
         </Tooltip>
       ) : inline ? (

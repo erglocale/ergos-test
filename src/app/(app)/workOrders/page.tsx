@@ -20,6 +20,8 @@ import {
   PRIORITY_TAG_COLOR,
   SOURCE_LABEL,
   STATUS_TAG_COLOR,
+  statusFilterLabel,
+  statusLabel,
   WORK_ORDER_STATUSES,
 } from "@/components/workOrders/workOrderUtils";
 import { useDb } from "@/data/store";
@@ -163,7 +165,12 @@ export default function WorkOrders() {
       title: "Status",
       key: "status",
       width: 120,
-      render: (_, o) => <Tag color={STATUS_TAG_COLOR[o.status]}>{o.status}</Tag>,
+      // Labelled in the subject's own words: a charger is "On site", the van
+      // it sits next to is "In service". Same underlying state, so the filter
+      // above still catches both.
+      render: (_, o) => (
+        <Tag color={STATUS_TAG_COLOR[o.status]}>{statusLabel(o)}</Tag>
+      ),
     },
     {
       title: "Updated",
@@ -270,7 +277,10 @@ export default function WorkOrders() {
           options={[
             { label: "Outstanding", value: "Outstanding" },
             { label: "Status: All", value: "All" },
-            ...WORK_ORDER_STATUSES.map((s) => ({ label: s, value: s })),
+            ...WORK_ORDER_STATUSES.map((s) => ({
+              label: statusFilterLabel(s),
+              value: s,
+            })),
           ]}
         />
         <Select

@@ -8,6 +8,12 @@
 // written in exactly one place and can never drift from the status it records.
 
 import dayjs from "dayjs";
+import {
+  cancelServiceVisit,
+  completeTask,
+  findTask,
+  startServiceVisit,
+} from "@/components/maintenance/taskActions";
 import { createRow, getDb, nextId, updateRow } from "@/data/store";
 import type {
   Db,
@@ -45,6 +51,53 @@ export const PRIORITY_TAG_COLOR: Record<WorkOrderPriority, string> = {
   Medium: "blue",
   Low: "default",
 };
+
+/**
+ * The same four states, in the words the subject uses. A charger is "in
+ * progress" while someone works on it; a van is "in service", which is what
+ * the maintenance page and the vehicle badge already say. The words are not
+ * interchangeable either way round — a charger that is "in service" reads as
+ * one that is working, the opposite of what the state means.
+ */
+const STATUS_LABEL_BY_SOURCE: Partial<
+  Record<WorkOrderSource, Partial<Record<WorkOrderStatus, string>>>
+> = {
+  MAINTENANCE_TASK: {
+    "In progress": "In service",
+    Blocked: "Awaiting parts",
+    Done: "Serviced",
+  },
+  CHARGER_WARNING: {
+    "In progress": "On site",
+    Done: "Fixed",
+  },
+};
+
+/** What this order's status is called, given what it is on. */
+export function statusLabel(
+  order: Pick<WorkOrder, "source" | "status">,
+): string {
+  return STATUS_LABEL_BY_SOURCE[order.source]?.[order.status] ?? order.status;
+}
+
+/** Segmented/Select options for one order, in its own vocabulary. */
+export function statusOptions(
+  source: WorkOrderSource,
+): { value: WorkOrderStatus; label: string }[] {
+  return WORK_ORDER_STATUSES.map((value) => ({
+    value,
+    label: STATUS_LABEL_BY_SOURCE[source]?.[value] ?? value,
+  }));
+}
+
+/** Every name a state goes by, for the board's filter across all sources. */
+export function statusFilterLabel(status: WorkOrderStatus): string {
+  const names = new Set<string>([status]);
+  for (const map of Object.values(STATUS_LABEL_BY_SOURCE)) {
+    if (map?.[status]) names.add(map[status]!);
+  }
+  return Array.from(names).join(" / ");
+}
 
 export const SOURCE_LABEL: Record<WorkOrderSource, string> = {
   CHARGER_WARNING: "Charger alert",
@@ -191,8 +244,61 @@ export function setWorkOrderStatus(order: WorkOrder, status: WorkOrderStatus): v
       status,
       closedAt: status === "Done" ? new Date().toISOString() : null,
     },
-    [status === "Done" ? "Marked done" : `Status changed to ${status}`],
+    [
+      status === "Done"
+        ? `Marked ${statusLabel({ source: order.source, status })}`
+        : `Status changed to ${statusLabel({ source: order.source, status })}`,
+    ],
   );
+  mirrorOntoMaintenance(order, status);
+}
+
+/**
+ * Push a status change back onto the maintenance task it was raised from.
+ * Without this the board and the maintenance page contradict each other: a
+ * work order marked done leaves the van sitting there overdue, and one moved
+ * to "in service" leaves it looking like it is still on the road.
+ *
+ * Each branch is a no-op when the task is already in that state, so the
+ * maintenance page driving the work order does not bounce back.
+ */
+function mirrorOntoMaintenance(order: WorkOrder, status: WorkOrderStatus): void {
+  if (order.source !== "MAINTENANCE_TASK" || !order.sourceId) return;
+  const task = findTask(order.sourceId);
+  if (!task || task.status === "COMPLETED") return;
+
+  if (status === "In progress") {
+    if (task.status === "IN_SERVICE") return;
+    startServiceVisit(task, {
+      startedAt: dayjs().format("YYYY-MM-DD"),
+      // Whatever the work order promised is the date to chase the garage on.
+      expectedReturn: order.dueDate,
+      vendor: null,
+      note: `Booked in from ${order.ref}`,
+    });
+    return;
+  }
+
+  if (status === "Open") {
+    // Reopened: the vehicle is not with anyone, so it is back on the road.
+    cancelServiceVisit(task);
+    return;
+  }
+
+  if (status === "Done") {
+    // "Serviced" has to mean serviced on both screens, so log the record with
+    // what is known — the garage that had it and today's odometer.
+    completeTask(task, {
+      serviceDate: dayjs().format("YYYY-MM-DD"),
+      odometerKm:
+        getDb().vehicles.find((v) => v.id === task.evId)?.odometerKm ?? null,
+      cost: null,
+      vendor: task.visit?.vendor ?? null,
+      notes: `Logged from ${order.ref}`,
+    });
+  }
+  // "Blocked" / "Awaiting parts" leaves the visit alone: waiting on a part is
+  // something that happens while the vehicle is still up on the ramp.
 }
 
 export function reassignWorkOrder(order: WorkOrder, assigneeId: string | null): void {

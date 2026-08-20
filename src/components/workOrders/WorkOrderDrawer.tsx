@@ -8,13 +8,20 @@ import { Button, DatePicker, Drawer, Input, Segmented, Select, Tag, Typography }
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import CompleteTaskModal, {
+  type CompleteTaskPayload,
+} from "@/components/maintenance/CompleteTaskModal";
+import { deriveMaintenance } from "@/components/maintenance/derive";
+import { completeTask } from "@/components/maintenance/taskActions";
 import { useDb } from "@/data/store";
+import { message } from "@/lib/antdStatic";
 import type { WorkOrder, WorkOrderPriority, WorkOrderStatus } from "@/data/types";
 import { DATE_FORMAT } from "@/lib/dateFormat";
 import {
   addWorkOrderNote,
   assignableUsers,
+  closeWorkOrdersForSource,
   isOverdue,
   PRIORITY_TAG_COLOR,
   reassignWorkOrder,
@@ -23,8 +30,9 @@ import {
   setWorkOrderStatus,
   SOURCE_LABEL,
   STATUS_TAG_COLOR,
+  statusLabel,
+  statusOptions,
   WORK_ORDER_PRIORITIES,
-  WORK_ORDER_STATUSES,
 } from "./workOrderUtils";
 
 dayjs.extend(relativeTime);
@@ -59,10 +67,47 @@ export default function WorkOrderDrawer({
 }) {
   const db = useDb();
   const [note, setNote] = useState("");
+  const [completeOpen, setCompleteOpen] = useState(false);
 
   // The row in the drawer must follow the store, not the snapshot it was
   // opened with, or an edit made here would not show until it is reopened.
   const live = order ? (db.workOrders.find((o) => o.id === order.id) ?? order) : null;
+
+  // The maintenance task this was raised from, if it is still outstanding.
+  // Closing one of these is the same act as ticking the task off, so it has to
+  // collect the same things — the cost of the job above all.
+  const taskId = live?.source === "MAINTENANCE_TASK" ? live.sourceId : null;
+  const task = useMemo(
+    () =>
+      taskId
+        ? (deriveMaintenance(db).tasks.find((t) => t.id === taskId) ?? null)
+        : null,
+    [db, taskId],
+  );
+
+  /** Closing a servicing job asks for the service details first. */
+  function handleStatusChange(next: WorkOrderStatus) {
+    if (!live) return;
+    if (next === "Done" && task) {
+      setCompleteOpen(true);
+      return;
+    }
+    setWorkOrderStatus(live, next);
+  }
+
+  function handleServiceLogged(payload: CompleteTaskPayload) {
+    if (!live || !task) return;
+    // Close the orders directly rather than through setWorkOrderStatus: that
+    // path completes the task itself, and the service is being logged here.
+    closeWorkOrdersForSource(task.id, "Closed — service logged");
+    completeTask(task, payload);
+    setCompleteOpen(false);
+    message.success(
+      task.isRecurring
+        ? "Service logged — next occurrence scheduled"
+        : "Service logged",
+    );
+  }
 
   return (
     <Drawer
@@ -73,7 +118,7 @@ export default function WorkOrderDrawer({
         live && (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span>{live.ref}</span>
-            <Tag color={STATUS_TAG_COLOR[live.status]}>{live.status}</Tag>
+            <Tag color={STATUS_TAG_COLOR[live.status]}>{statusLabel(live)}</Tag>
             {isOverdue(live) && <Tag color="red">Overdue</Tag>}
           </div>
         )
@@ -117,8 +162,8 @@ export default function WorkOrderDrawer({
           <Field label="Status">
             <Segmented
               value={live.status}
-              options={WORK_ORDER_STATUSES}
-              onChange={(v) => setWorkOrderStatus(live, v as WorkOrderStatus)}
+              options={statusOptions(live.source)}
+              onChange={(v) => handleStatusChange(v as WorkOrderStatus)}
               block
             />
           </Field>
@@ -223,6 +268,16 @@ export default function WorkOrderDrawer({
               Add note
             </Button>
           </div>
+
+          {/* Same form the maintenance page uses, so a job closed from here
+              lands in service history with its cost, odometer and vendor. */}
+          <CompleteTaskModal
+            open={completeOpen}
+            onClose={() => setCompleteOpen(false)}
+            onSubmit={handleServiceLogged}
+            task={task}
+            loading={false}
+          />
         </>
       )}
     </Drawer>

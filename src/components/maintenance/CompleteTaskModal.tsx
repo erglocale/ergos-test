@@ -42,11 +42,13 @@ export default function CompleteTaskModal({
   useEffect(() => {
     if (!open) return;
     form.setFieldsValue({
+      // Coming back from a garage: the service ended today, and the garage
+      // that has had it is almost always the one to bill against.
       serviceDate: dayjs(),
       odometerKm: task?.currentKm != null ? Math.round(task.currentKm) : null,
       cost: null,
-      vendor: null,
-      notes: null,
+      vendor: task?.visit?.vendor ?? null,
+      notes: task?.visit?.note ?? null,
     });
   }, [open, task, form]);
 
@@ -72,13 +74,23 @@ export default function CompleteTaskModal({
       destroyOnHidden
       width={480}
     >
-      <p style={{ marginTop: 0, marginBottom: 16, color: "#64748b" }}>
+      <p style={{ marginTop: 0, marginBottom: task?.visit ? 8 : 16, color: "#64748b" }}>
         {task?.title}
         {task?.Ev?.licensePlate ? ` — ${task.Ev.licensePlate}` : ""}
         {task?.isRecurring
           ? ". The next occurrence will be scheduled automatically."
           : ""}
       </p>
+      {task?.visit && (
+        <p style={{ marginTop: 0, marginBottom: 16, color: "#d97706", fontSize: 13 }}>
+          Off the road since{" "}
+          {dayjs(task.visit.startedAt).format("DD MMM YYYY")}
+          {task.daysInService != null
+            ? ` · ${task.daysInService} ${task.daysInService === 1 ? "day" : "days"}`
+            : ""}
+          . Completing this puts it back in service.
+        </p>
+      )}
       <Form form={form} layout="vertical" requiredMark={false}>
         <div style={{ display: "flex", gap: 12 }}>
           <Form.Item

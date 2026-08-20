@@ -38,3 +38,13 @@ body {
       inset 0 0 40px #ffffff;
   }
 }
+
+/* Maintenance: a vehicle that is away at a garage reads as a different kind of
+   row from one that is merely due, so the whole line is tinted rather than
+   just the status pill. */
+.maintenance-in-service-row > td {
+  background-color: #faf8ff;
+}
+.maintenance-in-service-row:hover > td {
+  background-color: #f3eeff !important;
+}

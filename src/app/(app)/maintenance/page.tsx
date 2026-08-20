@@ -4,14 +4,13 @@ import {
   Button,
   Card,
   Col,
+  Dropdown,
   Input,
   message,
-  Popconfirm,
   Row,
   Segmented,
   Table,
   Tabs,
-  Tooltip,
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -24,8 +23,10 @@ import {
   CheckCircle2,
   Pencil,
   Plus,
+  MoreVertical,
   Search,
   Trash2,
+  Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -40,17 +41,34 @@ import {
   type EnrichedMaintenanceTask,
   type MaintenanceEv,
 } from "@/components/maintenance/derive";
+import StartServiceModal, {
+  StartServicePayload,
+} from "@/components/maintenance/StartServiceModal";
+import {
+  cancelServiceVisit,
+  completeTask,
+  startServiceVisit,
+} from "@/components/maintenance/taskActions";
 import TaskFormModal, {
   TaskFormPayload,
 } from "@/components/maintenance/TaskFormModal";
 import WorkOrderCell from "@/components/workOrders/WorkOrderCell";
-import { closeWorkOrdersForSource } from "@/components/workOrders/workOrderUtils";
-import { createRow, nextId, removeRow, updateRow, useDb } from "@/data/store";
-import type {
-  MaintenanceRecord,
-  MaintenanceTask,
-  WorkOrderPriority,
-} from "@/data/types";
+import {
+  addWorkOrderNote,
+  closeWorkOrdersForSource,
+  primaryWorkOrder,
+  setWorkOrderStatus,
+} from "@/components/workOrders/workOrderUtils";
+import {
+  createRow,
+  isEnergyBrainVehicle,
+  nextId,
+  removeRow,
+  updateRow,
+  useDb,
+} from "@/data/store";
+import { modal } from "@/lib/antdStatic";
+import type { MaintenanceTask, WorkOrderPriority } from "@/data/types";
 
 const { Title } = Typography;
 
@@ -86,11 +104,58 @@ const SUMMARY_CARDS = [
     color: "#16a34a",
     bg: "#f0fdf4",
   },
+  {
+    key: "inService",
+    label: "In service",
+    icon: Wrench,
+    color: "#7c3aed",
+    bg: "#f5f3ff",
+  },
 ] as const;
+
+const IN_SERVICE_META = { label: "In service", color: "#7c3aed", bg: "#f5f3ff" };
+
+/**
+ * The due status, unless the vehicle is actually at a garage — then that is
+ * the answer to "what is happening with this", and how many days it has been
+ * there matters more than how many km it had left when it went in.
+ */
+function TaskStatusCell({ row }: { row: EnrichedMaintenanceTask }) {
+  if (row.status !== "IN_SERVICE" || !row.visit) {
+    return <StatusPill dueStatus={row.dueStatus} />;
+  }
+  const days = row.daysInService ?? 0;
+  return (
+    <div>
+      <Pill meta={IN_SERVICE_META} />
+      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
+        {days === 0 ? "Booked in today" : `Day ${days + 1}`}
+        {row.visit.vendor ? ` · ${row.visit.vendor}` : ""}
+      </div>
+      {row.visit.expectedReturn && (
+        <div
+          style={{
+            fontSize: 12,
+            marginTop: 2,
+            color: row.returnOverdue ? "#dc2626" : "#94a3b8",
+            fontWeight: row.returnOverdue ? 600 : 400,
+          }}
+        >
+          {row.returnOverdue ? "Overdue back — due " : "Back "}
+          {format(new Date(row.visit.expectedReturn), "dd MMM")}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StatusPill({ dueStatus }: { dueStatus: DueStatus }) {
   const meta = STATUS_META[dueStatus];
   if (!meta) return "—";
+  return <Pill meta={meta} />;
+}
+
+function Pill({ meta }: { meta: { label: string; color: string; bg: string } }) {
   return (
     <span
       style={{
@@ -121,15 +186,19 @@ function StatusPill({ dueStatus }: { dueStatus: DueStatus }) {
 
 function VehicleCell({ ev }: { ev: MaintenanceEv | null }) {
   if (!ev) return "—";
+  // Model only for the fixture fleet, as on the dashboard: the manufacturer's
+  // legal name ("Piaggio Vehicles Pvt Ltd") is three times the width of the
+  // thing that identifies the van. energy-brain names its own and is left be.
+  const subtitle = isEnergyBrainVehicle(ev.id)
+    ? [ev.make, ev.model].filter(Boolean).join(" ")
+    : ev.model;
   return (
     <Link href={`/vehicles/${ev.id}`} style={{ color: "inherit" }}>
       <div style={{ fontWeight: 600, color: "#1e293b" }}>
         {ev.licensePlate || `EV #${ev.id}`}
       </div>
-      {ev.make && (
-        <div style={{ fontSize: 12, color: "#94a3b8" }}>
-          {ev.make} {ev.model}
-        </div>
+      {subtitle && (
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>{subtitle}</div>
       )}
     </Link>
   );
@@ -144,6 +213,18 @@ const WORK_PRIORITY: Record<DueStatus, WorkOrderPriority> = {
   UNKNOWN: "Low",
 };
 
+/** "every 10,000 km", "every 6 months", or nothing for a one-off task. */
+function recurrenceLabel(task: EnrichedMaintenanceTask): string {
+  if (!task.isRecurring) return "";
+  const parts = [
+    task.intervalKm != null ? `${task.intervalKm.toLocaleString()} km` : null,
+    task.intervalMonths != null
+      ? `${task.intervalMonths} ${task.intervalMonths === 1 ? "month" : "months"}`
+      : null,
+  ].filter(Boolean);
+  return parts.length ? `every ${parts.join(" / ")}` : "recurring";
+}
+
 const formatKm = (value: number | null | undefined) =>
   value != null ? `${Math.round(Number(value)).toLocaleString()} km` : null;
 
@@ -151,6 +232,7 @@ function VehicleStatusTab({
   tasks,
   isLoading,
   onComplete,
+  onStartService,
   onEdit,
   onDelete,
   deleting,
@@ -158,6 +240,7 @@ function VehicleStatusTab({
   tasks: EnrichedMaintenanceTask[];
   isLoading: boolean;
   onComplete: (row: EnrichedMaintenanceTask) => void;
+  onStartService: (row: EnrichedMaintenanceTask) => void;
   onEdit: (row: EnrichedMaintenanceTask) => void;
   onDelete: (row: EnrichedMaintenanceTask) => void;
   deleting: boolean;
@@ -175,15 +258,17 @@ function VehicleStatusTab({
         <div>
           <div style={{ fontWeight: 500 }}>{row.title}</div>
           <div style={{ fontSize: 12, color: "#94a3b8" }}>
-            {row.taskType === "OEM_SERVICE" ? "OEM service" : "Fleet task"}
+            {[
+              row.taskType === "OEM_SERVICE" ? "OEM service" : "Fleet task",
+              // The recurrence had a column of its own that only ever said
+              // "Yes" or a dash; the interval belongs with the task it repeats.
+              recurrenceLabel(row),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </div>
         </div>
       ),
-    },
-    {
-      title: "Recurring",
-      key: "recurring",
-      render: (_, row) => (row.isRecurring ? "Yes" : "—"),
     },
     {
       title: "Due (km)",
@@ -235,7 +320,7 @@ function VehicleStatusTab({
     {
       title: "Status",
       key: "status",
-      render: (_, row) => <StatusPill dueStatus={row.dueStatus} />,
+      render: (_, row) => <TaskStatusCell row={row} />,
     },
     {
       title: "Assigned",
@@ -259,44 +344,70 @@ function VehicleStatusTab({
       ),
     },
     {
-      title: "Actions",
+      title: "",
       key: "actions",
       align: "right",
-      render: (_, row) => (
-        <div
-          style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Tooltip title="Mark complete">
-            <Button
-              size="small"
-              type="text"
-              icon={<Check size={15} color="#16a34a" />}
-              onClick={() => onComplete(row)}
-            />
-          </Tooltip>
-          <Tooltip title="Edit">
-            <Button
-              size="small"
-              type="text"
-              icon={<Pencil size={14} color="#64748b" />}
-              onClick={() => onEdit(row)}
-            />
-          </Tooltip>
-          <Popconfirm
-            title="Delete this task?"
-            okText="Delete"
-            okButtonProps={{ danger: true, loading: deleting }}
-            onConfirm={() => onDelete(row)}
-          >
-            <Button
-              size="small"
-              type="text"
-              icon={<Trash2 size={14} color="#dc2626" />}
-            />
-          </Popconfirm>
-        </div>
-      ),
+      width: 56,
+      // Four icons per row on a table this wide is noise; the row's own state
+      // already says what is happening, so the verbs live behind one control.
+      render: (_, row) => {
+        const inService = row.status === "IN_SERVICE";
+        return (
+          <div onClick={(e) => e.stopPropagation()}>
+            <Dropdown
+              trigger={["click"]}
+              placement="bottomRight"
+              menu={{
+                items: [
+                  {
+                    key: "service",
+                    icon: <Wrench size={14} />,
+                    label: inService ? "Update service visit" : "Send for service",
+                    onClick: () => onStartService(row),
+                  },
+                  {
+                    key: "complete",
+                    icon: <Check size={14} />,
+                    label: inService
+                      ? "Back on road — log service"
+                      : "Mark complete",
+                    onClick: () => onComplete(row),
+                  },
+                  { key: "d1", type: "divider" },
+                  {
+                    key: "edit",
+                    icon: <Pencil size={14} />,
+                    label: "Edit task",
+                    onClick: () => onEdit(row),
+                  },
+                  {
+                    key: "delete",
+                    icon: <Trash2 size={14} />,
+                    label: "Delete task",
+                    danger: true,
+                    onClick: () =>
+                      modal.confirm({
+                        title: "Delete this task?",
+                        content: `${row.title}${
+                          row.Ev?.licensePlate ? ` — ${row.Ev.licensePlate}` : ""
+                        }. Anything assigned against it is closed too.`,
+                        okText: "Delete",
+                        okButtonProps: { danger: true, loading: deleting },
+                        onOk: () => onDelete(row),
+                      }),
+                  },
+                ],
+              }}
+            >
+              <Button
+                size="small"
+                type="text"
+                icon={<MoreVertical size={16} color="#64748b" />}
+              />
+            </Dropdown>
+          </div>
+        );
+      },
     },
   ];
 
@@ -308,6 +419,9 @@ function VehicleStatusTab({
       loading={isLoading}
       pagination={{ pageSize: 10, hideOnSinglePage: true }}
       size="middle"
+      rowClassName={(row) =>
+        row.status === "IN_SERVICE" ? "maintenance-in-service-row" : ""
+      }
     />
   );
 }
@@ -343,9 +457,23 @@ function HistoryTab({
     },
     {
       title: "Date",
-      dataIndex: "serviceDate",
       key: "serviceDate",
-      render: (value) => (value ? format(new Date(value), "dd MMM yyyy") : "—"),
+      render: (_, row) => (
+        <div>
+          <div>
+            {row.serviceDate
+              ? format(new Date(row.serviceDate), "dd MMM yyyy")
+              : "—"}
+          </div>
+          {row.daysOffRoad != null && (
+            <div style={{ fontSize: 12, color: "#94a3b8" }}>
+              {row.daysOffRoad === 0
+                ? "Same-day service"
+                : `${row.daysOffRoad} ${row.daysOffRoad === 1 ? "day" : "days"} off road`}
+            </div>
+          )}
+        </div>
+      ),
     },
     {
       title: "Odometer",
@@ -397,6 +525,8 @@ export default function Maintenance() {
     null,
   );
   const [completeTarget, setCompleteTarget] =
+    useState<EnrichedMaintenanceTask | null>(null);
+  const [serviceTarget, setServiceTarget] =
     useState<EnrichedMaintenanceTask | null>(null);
 
   const { tasks, counts } = useMemo(() => deriveMaintenance(db), [db]);
@@ -493,6 +623,7 @@ export default function Maintenance() {
         dueKm,
         dueDate,
         status: "ACTIVE",
+        visit: null,
         createdAt: new Date().toISOString(),
       };
       createRow("maintenanceTasks", row);
@@ -508,49 +639,68 @@ export default function Maintenance() {
     setEditTarget(null);
   };
 
+  /** Book the vehicle in with a garage, or revise a visit already open. */
+  const handleStartService = (payload: StartServicePayload) => {
+    if (!serviceTarget) return;
+    const task = serviceTarget;
+    const reopening = task.status !== "IN_SERVICE";
+    startServiceVisit(task, {
+      startedAt: payload.startedAt,
+      expectedReturn: payload.expectedReturn,
+      vendor: payload.vendor,
+      note: payload.note,
+    });
+    // The work is under way, so whoever it was handed to shouldn't still be
+    // looking at an open ticket — keep the two in step.
+    const order = primaryWorkOrder(db.workOrders, task.id);
+    if (order) {
+      const back = payload.expectedReturn
+        ? `, expected back ${dayjs(payload.expectedReturn).format("DD MMM YYYY")}`
+        : "";
+      if (reopening) {
+        setWorkOrderStatus(order, "In progress");
+        addWorkOrderNote(
+          order,
+          `Vehicle booked in${payload.vendor ? ` at ${payload.vendor}` : ""}${back}`,
+        );
+      } else {
+        addWorkOrderNote(order, `Service visit updated${back}`);
+      }
+    }
+    messageApi.success(
+      reopening
+        ? `${task.Ev?.licensePlate ?? "Vehicle"} marked in service`
+        : "Service visit updated",
+    );
+    setServiceTarget(null);
+  };
+
+  /** The vehicle came back without the work being done. */
+  const handleCancelVisit = () => {
+    if (!serviceTarget) return;
+    const task = serviceTarget;
+    cancelServiceVisit(task);
+    const order = primaryWorkOrder(db.workOrders, task.id);
+    if (order && order.status !== "Done") {
+      setWorkOrderStatus(order, "Open");
+      addWorkOrderNote(order, "Service visit cancelled — vehicle back without work done");
+    }
+    messageApi.info("Service visit cancelled");
+    setServiceTarget(null);
+  };
+
   const handleComplete = (payload: CompleteTaskPayload) => {
     if (!completeTarget) return;
     const task = completeTarget;
-    const record: MaintenanceRecord = {
-      id: nextId("maintenanceRecords", "mr"),
-      evId: task.evId,
-      taskId: task.id,
-      taskTitle: task.title,
-      taskType: task.taskType,
-      serviceDate: payload.serviceDate,
-      odometerKm: payload.odometerKm,
-      cost: payload.cost,
-      vendor: payload.vendor,
-      notes: payload.notes,
-    };
-    createRow("maintenanceRecords", record);
-    // Keep km tracking calibrated, like the production backend.
-    if (
-      payload.odometerKm != null &&
-      (task.currentKm == null || payload.odometerKm > task.currentKm)
-    ) {
-      updateRow("vehicles", task.evId, { odometerKm: payload.odometerKm });
-    }
     // The job is done, so anything still assigned against it is done too —
     // otherwise the board keeps showing work that has already been carried out.
     closeWorkOrdersForSource(task.id, "Closed automatically — service logged");
-    if (task.isRecurring) {
-      // Roll the next due point forward from the service just logged.
-      const anchorKm = payload.odometerKm ?? task.currentKm ?? 0;
-      updateRow("maintenanceTasks", task.id, {
-        dueKm: task.intervalKm != null ? anchorKm + task.intervalKm : null,
-        dueDate: task.intervalMonths
-          ? dayjs(payload.serviceDate)
-              .add(task.intervalMonths, "month")
-              .format("YYYY-MM-DD")
-          : null,
-        status: "ACTIVE",
-      });
-      messageApi.success("Service logged — next occurrence scheduled");
-    } else {
-      updateRow("maintenanceTasks", task.id, { status: "COMPLETED" });
-      messageApi.success("Service logged");
-    }
+    completeTask(task, payload);
+    messageApi.success(
+      task.isRecurring
+        ? "Service logged — next occurrence scheduled"
+        : "Service logged",
+    );
     setCompleteTarget(null);
   };
 
@@ -593,7 +743,7 @@ export default function Maintenance() {
         {SUMMARY_CARDS.map((card) => {
           const IconComp = card.icon;
           return (
-            <Col span={8} key={card.key}>
+            <Col xs={24} sm={12} xl={6} key={card.key}>
               <Card
                 style={{
                   borderRadius: 12,
@@ -691,6 +841,7 @@ export default function Maintenance() {
                 tasks={filteredTasks}
                 isLoading={false}
                 onComplete={setCompleteTarget}
+                onStartService={setServiceTarget}
                 onEdit={(row) => {
                   setEditTarget(row);
                   setTaskFormOpen(true);
@@ -719,6 +870,15 @@ export default function Maintenance() {
         onSubmit={handleSubmitTask}
         task={editTarget}
         vehicles={vehicles}
+        loading={false}
+      />
+
+      <StartServiceModal
+        open={!!serviceTarget}
+        onClose={() => setServiceTarget(null)}
+        onSubmit={handleStartService}
+        onCancelVisit={handleCancelVisit}
+        task={serviceTarget}
         loading={false}
       />
 

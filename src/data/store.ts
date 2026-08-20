@@ -22,9 +22,10 @@ import type { CollectionKey, Db, Profile } from "./types";
 //      drivers on the Kapashera cars so their sessions are fleet sessions.
 // v22: outside-hub sessions carry no public location name — the tag reads
 //      "Outside Hub", not the name of the place.
-// v23: work orders, and the technicians they get assigned to. The collection
-//      itself would backfill on its own, but the new portal users would not.
-const DB_KEY = "ergos-test:db:v23";
+// v24: maintenance tasks gained a service visit (status IN_SERVICE + `visit`),
+//      and records a daysOffRoad. New fields on existing rows are not
+//      backfilled the way whole collections are, so the key has to move.
+const DB_KEY = "ergos-test:db:v24";
 
 let cache: Db | null = null;
 // Live rows from energy-brain, merged (not persisted) on top of the fixtures.

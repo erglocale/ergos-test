@@ -1,6 +1,12 @@
 "use client";
 
 import { Card } from "antd";
+import { useMemo } from "react";
+import {
+  vehiclesInService,
+  type VehicleServiceInfo,
+} from "@/components/maintenance/derive";
+import { useDb } from "@/data/store";
 import type { Driver, Vehicle } from "@/data/types";
 import VehiclePhoto from "../vehiclePhoto";
 import { SURFACE_CARD_STYLE } from "./ui";
@@ -91,6 +97,32 @@ function VehicleStatusPill({ vehicle, driver }: { vehicle: Vehicle; driver: Driv
   );
 }
 
+/**
+ * Off the road at a garage. Shown next to the hub chip because it answers the
+ * first question someone opening this page has when the van is not moving.
+ */
+function InServiceChip({ info }: { info: VehicleServiceInfo }) {
+  const day = info.daysInService + 1;
+  const back = info.expectedReturn
+    ? `${info.returnOverdue ? "was due back" : "back"} ${new Date(
+        info.expectedReturn,
+      ).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}`
+    : "no return date";
+  const tone = info.returnOverdue
+    ? { bg: "#fef2f2", fg: "#991b1b", border: "#fecaca", dot: "#dc2626" }
+    : { bg: "#f5f3ff", fg: "#5b21b6", border: "#ddd6fe", dot: "#7c3aed" };
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium"
+      style={{ background: tone.bg, color: tone.fg, borderColor: tone.border }}
+    >
+      <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: tone.dot }} />
+      In service · day {day}
+      {info.vendor ? ` at ${info.vendor}` : ""} · {back}
+    </span>
+  );
+}
+
 // Vehicle header — image, plate, model meta, live SoC ring, driver badge
 // and the QR action (moved out of the tab bar, as in production).
 export default function VehicleHeader({
@@ -102,6 +134,11 @@ export default function VehicleHeader({
   driver: Driver | undefined;
   qrCodeSlot: React.ReactNode;
 }) {
+  const db = useDb();
+  const service = useMemo(
+    () => vehiclesInService(db).get(vehicle.id),
+    [db, vehicle.id],
+  );
   const extras = deriveVehicleExtras(vehicle);
   const telemetryOn = hasTelemetry(vehicle);
   const soc = telemetryOn ? Math.max(0, Math.min(100, Math.round(vehicle.soc))) : null;
@@ -140,7 +177,7 @@ export default function VehicleHeader({
             </span>
           </div>
           {/* Assigned hubs chips */}
-          <div className="mt-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <span
               className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium"
               style={{ background: "#fff7ed", color: "#9a3412", borderColor: "#fed7aa" }}
@@ -148,6 +185,7 @@ export default function VehicleHeader({
               <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "#f97417" }} />
               {vehicle.hub}
             </span>
+            {service && <InServiceChip info={service} />}
           </div>
         </div>
 

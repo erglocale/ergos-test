@@ -20,6 +20,10 @@ export interface EnrichedMaintenanceTask extends MaintenanceTask {
   daysRemaining: number | null;
   dueStatus: DueStatus;
   telemetryStale?: boolean;
+  /** Days the vehicle has been off the road, while a visit is open. */
+  daysInService: number | null;
+  /** Still with the garage past the date they promised it back. */
+  returnOverdue: boolean;
 }
 
 export interface EnrichedMaintenanceRecord extends MaintenanceRecord {
@@ -31,6 +35,7 @@ export interface MaintenanceCounts {
   overdue: number;
   dueSoon: number;
   onTrack: number;
+  inService: number;
 }
 
 function joinEv(db: Db, evId: string): {
@@ -51,7 +56,9 @@ export function deriveMaintenance(db: Db): {
 } {
   const today = dayjs().startOf("day");
   const tasks: EnrichedMaintenanceTask[] = db.maintenanceTasks
-    .filter((t) => t.status === "ACTIVE")
+    // A task with the vehicle at the garage is still outstanding work — it
+    // stays on the board until the service is logged.
+    .filter((t) => t.status === "ACTIVE" || t.status === "IN_SERVICE")
     .map((t) => {
       const { ev, currentKm } = joinEv(db, t.evId);
       const kmRemaining =
@@ -76,13 +83,28 @@ export function deriveMaintenance(db: Db): {
       } else {
         dueStatus = "UNKNOWN";
       }
-      return { ...t, Ev: ev, currentKm, kmRemaining, daysRemaining, dueStatus };
+      const daysInService =
+        t.visit != null ? today.diff(dayjs(t.visit.startedAt).startOf("day"), "day") : null;
+      const returnOverdue =
+        t.visit?.expectedReturn != null &&
+        dayjs(t.visit.expectedReturn).startOf("day").isBefore(today);
+      return {
+        ...t,
+        Ev: ev,
+        currentKm,
+        kmRemaining,
+        daysRemaining,
+        dueStatus,
+        daysInService,
+        returnOverdue,
+      };
     });
 
   const counts: MaintenanceCounts = {
     overdue: tasks.filter((t) => t.dueStatus === "OVERDUE").length,
     dueSoon: tasks.filter((t) => t.dueStatus === "DUE_SOON").length,
     onTrack: tasks.filter((t) => t.dueStatus === "ON_TRACK").length,
+    inService: tasks.filter((t) => t.status === "IN_SERVICE").length,
   };
 
   return { tasks, counts };
@@ -99,4 +121,42 @@ export function deriveRecords(db: Db): EnrichedMaintenanceRecord[] {
           : null,
     }))
     .sort((a, b) => (a.serviceDate < b.serviceDate ? 1 : -1));
+}
+
+/** What is showing on a vehicle that is away being serviced. */
+export interface VehicleServiceInfo {
+  taskId: string;
+  title: string;
+  vendor: string | null;
+  expectedReturn: string | null;
+  daysInService: number;
+  returnOverdue: boolean;
+}
+
+/**
+ * Vehicles currently with a garage, keyed by vehicle id. Derived from the
+ * maintenance tasks rather than stored on the vehicle: `Vehicle.status` is what
+ * telematics reports, and overwriting it would break the running/idle counts
+ * and the map. Being off the road is a fleet fact layered on top of that.
+ */
+export function vehiclesInService(db: Db): Map<string, VehicleServiceInfo> {
+  const today = dayjs().startOf("day");
+  const out = new Map<string, VehicleServiceInfo>();
+  for (const t of db.maintenanceTasks) {
+    if (t.status !== "IN_SERVICE" || !t.visit) continue;
+    const info: VehicleServiceInfo = {
+      taskId: t.id,
+      title: t.title,
+      vendor: t.visit.vendor,
+      expectedReturn: t.visit.expectedReturn,
+      daysInService: today.diff(dayjs(t.visit.startedAt).startOf("day"), "day"),
+      returnOverdue:
+        t.visit.expectedReturn != null &&
+        dayjs(t.visit.expectedReturn).startOf("day").isBefore(today),
+    };
+    // Two open jobs on one van: show the one that has been in longest.
+    const seen = out.get(t.evId);
+    if (!seen || info.daysInService > seen.daysInService) out.set(t.evId, info);
+  }
+  return out;
 }
