@@ -6,7 +6,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Radio,
   Select,
   Switch,
 } from "antd";
@@ -25,7 +24,6 @@ export interface TaskFormVehicle {
 
 export interface TaskFormPayload {
   evId: string;
-  taskType: "FLEET_TASK" | "OEM_SERVICE";
   title: string;
   description: string | null;
   isRecurring: boolean;
@@ -38,7 +36,6 @@ export interface TaskFormPayload {
 
 interface TaskFormValues {
   evId: string;
-  taskType: "FLEET_TASK" | "OEM_SERVICE";
   title: string;
   description?: string | null;
   isRecurring?: boolean;
@@ -86,7 +83,6 @@ export default function TaskFormModal({
     if (task) {
       form.setFieldsValue({
         evId: task.evId,
-        taskType: task.taskType,
         title: task.title,
         description: task.description,
         isRecurring: task.isRecurring,
@@ -104,7 +100,6 @@ export default function TaskFormModal({
     const values = await form.validateFields();
     const payload: TaskFormPayload = {
       evId: values.evId,
-      taskType: values.taskType,
       title: values.title,
       description: values.description ?? null,
       isRecurring: !!values.isRecurring,
@@ -132,7 +127,7 @@ export default function TaskFormModal({
         form={form}
         layout="vertical"
         requiredMark={false}
-        initialValues={{ taskType: "FLEET_TASK", isRecurring: false }}
+        initialValues={{ isRecurring: false }}
       >
         <Form.Item
           name="evId"
@@ -151,13 +146,6 @@ export default function TaskFormModal({
               }`,
             }))}
           />
-        </Form.Item>
-
-        <Form.Item name="taskType" label="Task type">
-          <Radio.Group>
-            <Radio.Button value="FLEET_TASK">Fleet task</Radio.Button>
-            <Radio.Button value="OEM_SERVICE">OEM service</Radio.Button>
-          </Radio.Group>
         </Form.Item>
 
         <Form.Item

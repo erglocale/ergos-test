@@ -20,7 +20,7 @@ export function findTask(taskId: string): MaintenanceTask | undefined {
   return getDb().maintenanceTasks.find((t) => t.id === taskId);
 }
 
-/** Book the vehicle in with a garage, or revise a visit already open. */
+/** Send the vehicle away for service, or revise a visit already open. */
 export function startServiceVisit(
   task: MaintenanceTask,
   visit: ServiceVisit,
@@ -38,7 +38,6 @@ export interface CompleteTaskInput {
   serviceDate: string; // YYYY-MM-DD
   odometerKm: number | null;
   cost: number | null;
-  vendor: string | null;
   notes: string | null;
 }
 
@@ -58,11 +57,9 @@ export function completeTask(
     evId: task.evId,
     taskId: task.id,
     taskTitle: task.title,
-    taskType: task.taskType,
     serviceDate: input.serviceDate,
     odometerKm: input.odometerKm,
     cost: input.cost,
-    vendor: input.vendor,
     notes: input.notes,
     daysOffRoad: task.visit
       ? Math.max(

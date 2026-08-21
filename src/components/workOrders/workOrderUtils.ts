@@ -271,29 +271,27 @@ function mirrorOntoMaintenance(order: WorkOrder, status: WorkOrderStatus): void 
     if (task.status === "IN_SERVICE") return;
     startServiceVisit(task, {
       startedAt: dayjs().format("YYYY-MM-DD"),
-      // Whatever the work order promised is the date to chase the garage on.
+      // Whatever the work order promised is the date to chase it on.
       expectedReturn: order.dueDate,
-      vendor: null,
-      note: `Booked in from ${order.ref}`,
+      note: `Sent for service from ${order.ref}`,
     });
     return;
   }
 
   if (status === "Open") {
-    // Reopened: the vehicle is not with anyone, so it is back on the road.
+    // Reopened: nobody is working on it, so it is back on the road.
     cancelServiceVisit(task);
     return;
   }
 
   if (status === "Done") {
     // "Serviced" has to mean serviced on both screens, so log the record with
-    // what is known — the garage that had it and today's odometer.
+    // what is known — today's odometer.
     completeTask(task, {
       serviceDate: dayjs().format("YYYY-MM-DD"),
       odometerKm:
         getDb().vehicles.find((v) => v.id === task.evId)?.odometerKm ?? null,
       cost: null,
-      vendor: task.visit?.vendor ?? null,
       notes: `Logged from ${order.ref}`,
     });
   }

@@ -180,21 +180,19 @@ export interface Suggestion {
   status: "New" | "Applied" | "Dismissed";
 }
 
-// A vehicle handed over to a garage. A service is rarely instant — the van is
+// A vehicle sent away for service. A service is rarely instant — the van is
 // off the road for days — so the task sits in this state between "due" and
-// "done", and the fleet manager can see who has it and when it is coming back.
+// "done", and the fleet manager can see how long it has been gone.
 export interface ServiceVisit {
   startedAt: string; // YYYY-MM-DD
-  /** When the garage says it will be back. Null when they would not commit. */
+  /** When it is expected back. Null when nobody would commit to a date. */
   expectedReturn: string | null;
-  vendor: string | null;
   note: string | null;
 }
 
 export interface MaintenanceTask {
   id: string;
   evId: string; // Vehicle.id
-  taskType: "FLEET_TASK" | "OEM_SERVICE";
   title: string;
   description: string | null;
   isRecurring: boolean;
@@ -203,7 +201,7 @@ export interface MaintenanceTask {
   dueKm: number | null;
   dueDate: string | null; // YYYY-MM-DD
   status: "ACTIVE" | "IN_SERVICE" | "COMPLETED";
-  /** Set while the vehicle is with a garage; cleared when the service is logged. */
+  /** Set while the vehicle is away; cleared when the service is logged. */
   visit: ServiceVisit | null;
   createdAt: string;
 }
@@ -213,11 +211,9 @@ export interface MaintenanceRecord {
   evId: string; // Vehicle.id
   taskId: string | null;
   taskTitle: string | null;
-  taskType: "FLEET_TASK" | "OEM_SERVICE" | null;
   serviceDate: string; // YYYY-MM-DD
   odometerKm: number | null;
   cost: number | null;
-  vendor: string | null;
   notes: string | null;
   /** How long the vehicle was off the road, when it was booked in first. */
   daysOffRoad: number | null;

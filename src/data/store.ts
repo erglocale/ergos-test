@@ -22,10 +22,10 @@ import type { CollectionKey, Db, Profile } from "./types";
 //      drivers on the Kapashera cars so their sessions are fleet sessions.
 // v22: outside-hub sessions carry no public location name — the tag reads
 //      "Outside Hub", not the name of the place.
-// v24: maintenance tasks gained a service visit (status IN_SERVICE + `visit`),
-//      and records a daysOffRoad. New fields on existing rows are not
-//      backfilled the way whole collections are, so the key has to move.
-const DB_KEY = "ergos-test:db:v24";
+// v25: maintenance dropped the OEM/fleet task type and the garage/vendor
+//      fields, and the seeded task list lost its non-EV job (coolant top-up).
+//      Existing rows are not migrated field by field, so the key has to move.
+const DB_KEY = "ergos-test:db:v25";
 
 let cache: Db | null = null;
 // Live rows from energy-brain, merged (not persisted) on top of the fixtures.

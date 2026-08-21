@@ -843,25 +843,22 @@ export function makeFixtures(now = dayjs()): Db {
   // status pills all have data. dueKm compares against vehicle.odometerKm.
   const maintenanceTasks: MaintenanceTask[] = [];
   const maintenanceRecords: MaintenanceRecord[] = [];
+  // Jobs an electric fleet actually books: no oil, no coolant top-ups. The
+  // wear items are brakes, tyres and suspension; the drivetrain work is the
+  // pack and the high-voltage side.
   const TASK_TEMPLATES: {
     title: string;
-    taskType: "FLEET_TASK" | "OEM_SERVICE";
     isRecurring: boolean;
     intervalKm: number | null;
     intervalMonths: number | null;
   }[] = [
-    { title: "Full service", taskType: "OEM_SERVICE", isRecurring: true, intervalKm: 10000, intervalMonths: 6 },
-    { title: "Brake inspection", taskType: "FLEET_TASK", isRecurring: true, intervalKm: 5000, intervalMonths: 3 },
-    { title: "Tyre rotation", taskType: "FLEET_TASK", isRecurring: true, intervalKm: 8000, intervalMonths: null },
-    { title: "Coolant top-up", taskType: "OEM_SERVICE", isRecurring: false, intervalKm: null, intervalMonths: null },
-    { title: "Battery health check", taskType: "OEM_SERVICE", isRecurring: true, intervalKm: null, intervalMonths: 12 },
-    { title: "Wheel alignment", taskType: "FLEET_TASK", isRecurring: false, intervalKm: null, intervalMonths: null },
+    { title: "Full service", isRecurring: true, intervalKm: 10000, intervalMonths: 6 },
+    { title: "Brake inspection", isRecurring: true, intervalKm: 5000, intervalMonths: 3 },
+    { title: "Tyre rotation", isRecurring: true, intervalKm: 8000, intervalMonths: null },
+    { title: "HV cable inspection", isRecurring: false, intervalKm: null, intervalMonths: null },
+    { title: "Battery health check", isRecurring: true, intervalKm: null, intervalMonths: 12 },
+    { title: "Wheel alignment", isRecurring: false, intervalKm: null, intervalMonths: null },
   ];
-  // Service vendors follow the vehicle's city — Guwahati for Etash's 3Ws,
-  // Delhi/NCR for Eco Mobility's cars.
-  const VENDORS = ["Sai Motors", "Kamakhya Auto Works", "GS Road Service Centre", "EV Care Guwahati"];
-  const NCR_VENDORS = ["MG Service Gurugram", "Kapashera Auto Care", "Dwarka EV Workshop"];
-  const vendorFor = (v: Vehicle) => pick(v.reg.startsWith("HR") ? NCR_VENDORS : VENDORS);
   let taskIdx = 0;
   let recordIdx = 0;
   for (let i = 0; i < 9; i += 1) {
@@ -877,7 +874,6 @@ export function makeFixtures(now = dayjs()): Db {
     maintenanceTasks.push({
       id: `mt-${taskIdx}`,
       evId: v.id,
-      taskType: tpl.taskType,
       title: tpl.title,
       description: null,
       isRecurring: tpl.isRecurring,
@@ -897,11 +893,9 @@ export function makeFixtures(now = dayjs()): Db {
         evId: v.id,
         taskId: `mt-${taskIdx}`,
         taskTitle: tpl.title,
-        taskType: tpl.taskType,
         serviceDate: now.subtract(daysAgo, "day").format("YYYY-MM-DD"),
         odometerKm: Math.max(500, v.odometerKm - int(800, 6000)),
         cost: int(4, 60) * 100,
-        vendor: vendorFor(v),
         notes: pick(["", "", "Replaced worn parts", "Routine check, all OK", "Minor adjustment done"]) || null,
         daysOffRoad: rand() < 0.4 ? int(1, 4) : null,
       });
@@ -918,7 +912,6 @@ export function makeFixtures(now = dayjs()): Db {
     note: string,
   ) => {
     if (!task) return;
-    const v = vehicles.find((x) => x.id === task.evId);
     task.status = "IN_SERVICE";
     task.visit = {
       startedAt: now.subtract(daysIn, "day").format("YYYY-MM-DD"),
@@ -926,7 +919,6 @@ export function makeFixtures(now = dayjs()): Db {
         expectedInDays === null
           ? null
           : now.add(expectedInDays, "day").format("YYYY-MM-DD"),
-      vendor: v ? vendorFor(v) : null,
       note,
     };
   };
@@ -1181,7 +1173,7 @@ export function makeFixtures(now = dayjs()): Db {
     order.activity.push({
       at,
       by: manager,
-      text: `Vehicle booked in${task.visit.vendor ? ` at ${task.visit.vendor}` : ""}${
+      text: `Vehicle sent for service${
         task.visit.expectedReturn
           ? `, expected back ${dayjs(task.visit.expectedReturn).format("DD MMM YYYY")}`
           : ""

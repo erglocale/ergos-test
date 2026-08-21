@@ -22,13 +22,13 @@ export interface EnrichedMaintenanceTask extends MaintenanceTask {
   telemetryStale?: boolean;
   /** Days the vehicle has been off the road, while a visit is open. */
   daysInService: number | null;
-  /** Still with the garage past the date they promised it back. */
+  /** Still away past the date it was due back. */
   returnOverdue: boolean;
 }
 
 export interface EnrichedMaintenanceRecord extends MaintenanceRecord {
   Ev: MaintenanceEv | null;
-  Task: { title: string; taskType: MaintenanceRecord["taskType"] } | null;
+  Task: { title: string } | null;
 }
 
 export interface MaintenanceCounts {
@@ -56,7 +56,7 @@ export function deriveMaintenance(db: Db): {
 } {
   const today = dayjs().startOf("day");
   const tasks: EnrichedMaintenanceTask[] = db.maintenanceTasks
-    // A task with the vehicle at the garage is still outstanding work — it
+    // A task with the vehicle away for service is still outstanding work — it
     // stays on the board until the service is logged.
     .filter((t) => t.status === "ACTIVE" || t.status === "IN_SERVICE")
     .map((t) => {
@@ -115,10 +115,7 @@ export function deriveRecords(db: Db): EnrichedMaintenanceRecord[] {
     .map((r) => ({
       ...r,
       Ev: joinEv(db, r.evId).ev,
-      Task:
-        r.taskTitle != null
-          ? { title: r.taskTitle, taskType: r.taskType }
-          : null,
+      Task: r.taskTitle != null ? { title: r.taskTitle } : null,
     }))
     .sort((a, b) => (a.serviceDate < b.serviceDate ? 1 : -1));
 }
@@ -127,14 +124,13 @@ export function deriveRecords(db: Db): EnrichedMaintenanceRecord[] {
 export interface VehicleServiceInfo {
   taskId: string;
   title: string;
-  vendor: string | null;
   expectedReturn: string | null;
   daysInService: number;
   returnOverdue: boolean;
 }
 
 /**
- * Vehicles currently with a garage, keyed by vehicle id. Derived from the
+ * Vehicles currently away for service, keyed by vehicle id. Derived from the
  * maintenance tasks rather than stored on the vehicle: `Vehicle.status` is what
  * telematics reports, and overwriting it would break the running/idle counts
  * and the map. Being off the road is a fleet fact layered on top of that.
@@ -147,7 +143,6 @@ export function vehiclesInService(db: Db): Map<string, VehicleServiceInfo> {
     const info: VehicleServiceInfo = {
       taskId: t.id,
       title: t.title,
-      vendor: t.visit.vendor,
       expectedReturn: t.visit.expectedReturn,
       daysInService: today.diff(dayjs(t.visit.startedAt).startOf("day"), "day"),
       returnOverdue:

@@ -1,9 +1,9 @@
 "use client";
 
-// Book a vehicle in with a garage, or revise the visit once it is there.
+// Send a vehicle away for service, or revise the visit once it is gone.
 // A service is rarely same-day, so this is the state between "due" and "done":
-// it records who has the vehicle and when they say it is coming back, which is
-// what the fleet manager chases when the date slips.
+// it records when the vehicle went in and when it is due back, which is what
+// the fleet manager chases when the date slips.
 
 import { Button, DatePicker, Form, Input, Modal } from "antd";
 import dayjs, { Dayjs } from "dayjs";
@@ -14,14 +14,12 @@ import { DATE_FORMAT } from "@/lib/dateFormat";
 export interface StartServicePayload {
   startedAt: string; // YYYY-MM-DD
   expectedReturn: string | null; // YYYY-MM-DD
-  vendor: string | null;
   note: string | null;
 }
 
 interface StartServiceValues {
   startedAt: Dayjs;
   expectedReturn?: Dayjs | null;
-  vendor?: string | null;
   note?: string | null;
 }
 
@@ -50,7 +48,6 @@ export default function StartServiceModal({
     form.setFieldsValue({
       startedAt: visit ? dayjs(visit.startedAt) : dayjs(),
       expectedReturn: visit?.expectedReturn ? dayjs(visit.expectedReturn) : null,
-      vendor: visit?.vendor ?? null,
       note: visit?.note ?? null,
     });
   }, [open, visit, form]);
@@ -62,7 +59,6 @@ export default function StartServiceModal({
       expectedReturn: values.expectedReturn
         ? values.expectedReturn.format("YYYY-MM-DD")
         : null,
-      vendor: values.vendor?.trim() || null,
       note: values.note?.trim() || null,
     });
   };
@@ -96,18 +92,10 @@ export default function StartServiceModal({
         is marked off the road until the service is logged.
       </p>
       <Form form={form} layout="vertical" requiredMark={false}>
-        <Form.Item
-          name="vendor"
-          label="Garage / vendor"
-          rules={[{ required: true, message: "Who has the vehicle?" }]}
-        >
-          <Input placeholder="e.g. Sai Motors" />
-        </Form.Item>
-
         <div style={{ display: "flex", gap: 12 }}>
           <Form.Item
             name="startedAt"
-            label="Booked in"
+            label="Sent on"
             style={{ flex: 1 }}
             rules={[{ required: true, message: "Select the date" }]}
           >

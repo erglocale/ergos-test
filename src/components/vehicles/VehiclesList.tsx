@@ -115,9 +115,7 @@ function InServiceTag({ info }: { info: VehicleServiceInfo }) {
       ).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}`
     : "No return date given";
   return (
-    <Tooltip
-      title={`${info.title}${info.vendor ? ` · ${info.vendor}` : ""} · ${back}`}
-    >
+    <Tooltip title={`${info.title} · ${back}`}>
       <Tag
         style={{ ...statusTagStyle, marginTop: 4 }}
         color={info.returnOverdue ? "red" : "purple"}

@@ -10,7 +10,6 @@ export interface CompleteTaskPayload {
   serviceDate: string; // YYYY-MM-DD
   odometerKm: number | null;
   cost: number | null;
-  vendor: string | null;
   notes: string | null;
 }
 
@@ -18,7 +17,6 @@ interface CompleteTaskValues {
   serviceDate: Dayjs;
   odometerKm?: number | null;
   cost?: number | null;
-  vendor?: string | null;
   notes?: string | null;
 }
 
@@ -42,12 +40,11 @@ export default function CompleteTaskModal({
   useEffect(() => {
     if (!open) return;
     form.setFieldsValue({
-      // Coming back from a garage: the service ended today, and the garage
-      // that has had it is almost always the one to bill against.
+      // Back from service: it ended today, and whatever was noted on the way
+      // in is the starting point for what was actually done.
       serviceDate: dayjs(),
       odometerKm: task?.currentKm != null ? Math.round(task.currentKm) : null,
       cost: null,
-      vendor: task?.visit?.vendor ?? null,
       notes: task?.visit?.note ?? null,
     });
   }, [open, task, form]);
@@ -58,7 +55,6 @@ export default function CompleteTaskModal({
       serviceDate: values.serviceDate.format("YYYY-MM-DD"),
       odometerKm: values.odometerKm ?? null,
       cost: values.cost ?? null,
-      vendor: values.vendor ?? null,
       notes: values.notes ?? null,
     });
   };
@@ -111,14 +107,9 @@ export default function CompleteTaskModal({
           </Form.Item>
         </div>
 
-        <div style={{ display: "flex", gap: 12 }}>
-          <Form.Item name="cost" label="Cost" style={{ flex: 1 }}>
-            <InputNumber min={0} style={{ width: "100%" }} placeholder="0.00" />
-          </Form.Item>
-          <Form.Item name="vendor" label="Vendor / garage" style={{ flex: 1 }}>
-            <Input placeholder="e.g. Sai Motors" />
-          </Form.Item>
-        </div>
+        <Form.Item name="cost" label="Cost">
+          <InputNumber min={0} style={{ width: "100%" }} placeholder="0.00" />
+        </Form.Item>
 
         <Form.Item name="notes" label="Notes">
           <Input.TextArea rows={2} placeholder="Optional notes" />

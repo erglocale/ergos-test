@@ -270,7 +270,7 @@ export default function WorkOrderDrawer({
           </div>
 
           {/* Same form the maintenance page uses, so a job closed from here
-              lands in service history with its cost, odometer and vendor. */}
+              lands in service history with its cost and odometer. */}
           <CompleteTaskModal
             open={completeOpen}
             onClose={() => setCompleteOpen(false)}

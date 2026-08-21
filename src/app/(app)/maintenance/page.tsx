@@ -8,7 +8,6 @@ import {
   Input,
   message,
   Row,
-  Segmented,
   Table,
   Tabs,
   Typography,
@@ -116,9 +115,9 @@ const SUMMARY_CARDS = [
 const IN_SERVICE_META = { label: "In service", color: "#7c3aed", bg: "#f5f3ff" };
 
 /**
- * The due status, unless the vehicle is actually at a garage — then that is
- * the answer to "what is happening with this", and how many days it has been
- * there matters more than how many km it had left when it went in.
+ * The due status, unless the vehicle is actually away being serviced — then
+ * that is the answer to "what is happening with this", and how many days it
+ * has been gone matters more than how many km it had left when it went in.
  */
 function TaskStatusCell({ row }: { row: EnrichedMaintenanceTask }) {
   if (row.status !== "IN_SERVICE" || !row.visit) {
@@ -129,8 +128,7 @@ function TaskStatusCell({ row }: { row: EnrichedMaintenanceTask }) {
     <div>
       <Pill meta={IN_SERVICE_META} />
       <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
-        {days === 0 ? "Booked in today" : `Day ${days + 1}`}
-        {row.visit.vendor ? ` · ${row.visit.vendor}` : ""}
+        {days === 0 ? "Sent in today" : `Day ${days + 1}`}
       </div>
       {row.visit.expectedReturn && (
         <div
@@ -252,23 +250,21 @@ function VehicleStatusTab({
       render: (_, row) => <VehicleCell ev={row.Ev} />,
     },
     {
-      title: "Type",
-      key: "type",
-      render: (_, row) => (
-        <div>
-          <div style={{ fontWeight: 500 }}>{row.title}</div>
-          <div style={{ fontSize: 12, color: "#94a3b8" }}>
-            {[
-              row.taskType === "OEM_SERVICE" ? "OEM service" : "Fleet task",
-              // The recurrence had a column of its own that only ever said
-              // "Yes" or a dash; the interval belongs with the task it repeats.
-              recurrenceLabel(row),
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+      title: "Task",
+      key: "task",
+      render: (_, row) => {
+        // The recurrence had a column of its own that only ever said "Yes" or
+        // a dash; the interval belongs with the task it repeats.
+        const recurrence = recurrenceLabel(row);
+        return (
+          <div>
+            <div style={{ fontWeight: 500 }}>{row.title}</div>
+            {recurrence && (
+              <div style={{ fontSize: 12, color: "#94a3b8" }}>{recurrence}</div>
+            )}
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: "Due (km)",
@@ -443,16 +439,7 @@ function HistoryTab({
       title: "Service",
       key: "service",
       render: (_, row) => (
-        <div>
-          <div style={{ fontWeight: 500 }}>{row.Task?.title || "—"}</div>
-          {row.Task && (
-            <div style={{ fontSize: 12, color: "#94a3b8" }}>
-              {row.Task.taskType === "OEM_SERVICE"
-                ? "OEM service"
-                : "Fleet task"}
-            </div>
-          )}
-        </div>
+        <div style={{ fontWeight: 500 }}>{row.Task?.title || "—"}</div>
       ),
     },
     {
@@ -488,12 +475,6 @@ function HistoryTab({
       render: (value) => (value != null ? Number(value).toLocaleString() : "—"),
     },
     {
-      title: "Vendor",
-      dataIndex: "vendor",
-      key: "vendor",
-      render: (value) => value || "—",
-    },
-    {
       title: "Notes",
       dataIndex: "notes",
       key: "notes",
@@ -518,7 +499,6 @@ export default function Maintenance() {
   const db = useDb();
   const [messageApi, contextHolder] = message.useMessage();
   const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("All");
   const [activeTab, setActiveTab] = useState("status");
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<EnrichedMaintenanceTask | null>(
@@ -554,14 +534,9 @@ export default function Maintenance() {
   };
 
   const filteredTasks = useMemo(
-    () =>
-      tasks.filter((t) => {
-        if (typeFilter === "OEM" && t.taskType !== "OEM_SERVICE") return false;
-        if (typeFilter === "Fleet" && t.taskType !== "FLEET_TASK") return false;
-        return matchesSearch(t.Ev);
-      }),
+    () => tasks.filter((t) => matchesSearch(t.Ev)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tasks, typeFilter, searchQuery],
+    [tasks, searchQuery],
   );
 
   const filteredRecords = useMemo(
@@ -574,7 +549,6 @@ export default function Maintenance() {
     if (editTarget) {
       updateRow("maintenanceTasks", editTarget.id, {
         evId: payload.evId,
-        taskType: payload.taskType,
         title: payload.title,
         description: payload.description,
         isRecurring: payload.isRecurring,
@@ -614,7 +588,6 @@ export default function Maintenance() {
       const row: MaintenanceTask = {
         id: nextId("maintenanceTasks", "mt"),
         evId: payload.evId,
-        taskType: payload.taskType,
         title: payload.title,
         description: payload.description,
         isRecurring: payload.isRecurring,
@@ -639,7 +612,7 @@ export default function Maintenance() {
     setEditTarget(null);
   };
 
-  /** Book the vehicle in with a garage, or revise a visit already open. */
+  /** Send the vehicle away for service, or revise a visit already open. */
   const handleStartService = (payload: StartServicePayload) => {
     if (!serviceTarget) return;
     const task = serviceTarget;
@@ -647,7 +620,6 @@ export default function Maintenance() {
     startServiceVisit(task, {
       startedAt: payload.startedAt,
       expectedReturn: payload.expectedReturn,
-      vendor: payload.vendor,
       note: payload.note,
     });
     // The work is under way, so whoever it was handed to shouldn't still be
@@ -659,10 +631,7 @@ export default function Maintenance() {
         : "";
       if (reopening) {
         setWorkOrderStatus(order, "In progress");
-        addWorkOrderNote(
-          order,
-          `Vehicle booked in${payload.vendor ? ` at ${payload.vendor}` : ""}${back}`,
-        );
+        addWorkOrderNote(order, `Vehicle sent for service${back}`);
       } else {
         addWorkOrderNote(order, `Service visit updated${back}`);
       }
@@ -802,7 +771,7 @@ export default function Maintenance() {
         })}
       </Row>
 
-      {/* Search + type filter */}
+      {/* Search */}
       <div
         style={{
           marginBottom: 16,
@@ -820,13 +789,6 @@ export default function Maintenance() {
           allowClear
           style={{ maxWidth: 360, borderRadius: 8, height: 40 }}
         />
-        {activeTab === "status" && (
-          <Segmented
-            options={["All", "OEM", "Fleet"]}
-            value={typeFilter}
-            onChange={setTypeFilter}
-          />
-        )}
       </div>
 
       <Tabs

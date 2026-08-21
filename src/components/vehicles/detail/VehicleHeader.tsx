@@ -117,8 +117,7 @@ function InServiceChip({ info }: { info: VehicleServiceInfo }) {
       style={{ background: tone.bg, color: tone.fg, borderColor: tone.border }}
     >
       <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: tone.dot }} />
-      In service · day {day}
-      {info.vendor ? ` at ${info.vendor}` : ""} · {back}
+      In service · day {day} · {back}
     </span>
   );
 }
