@@ -1,18 +1,25 @@
 "use client";
 
 import {
+  Button,
   DatePicker,
+  Divider,
   Form,
   Input,
   InputNumber,
   Modal,
   Select,
+  Space,
   Switch,
 } from "antd";
 import dayjs, { Dayjs } from "dayjs";
-import { useEffect } from "react";
+import { Plus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { findService, serviceOptionGroups } from "@/data/serviceCatalog";
 import type { MaintenanceTask } from "@/data/types";
 import { DATE_FORMAT } from "@/lib/dateFormat";
+
+const SERVICE_OPTIONS = serviceOptionGroups();
 
 export interface TaskFormVehicle {
   id: string;
@@ -46,13 +53,15 @@ interface TaskFormValues {
   currentOdometerKm?: number | null;
 }
 
-// Create / edit a maintenance task. Pass `task` to edit, null to create.
+// Add / edit a service. Pass `task` to edit, null to add.
 export default function TaskFormModal({
   open,
   onClose,
   onSubmit,
   task,
   vehicles,
+  customServices,
+  onCreateService,
   loading,
 }: {
   open: boolean;
@@ -60,10 +69,49 @@ export default function TaskFormModal({
   onSubmit: (payload: TaskFormPayload) => void;
   task: MaintenanceTask | null;
   vehicles: TaskFormVehicle[];
+  /** Services the fleet added itself, on top of the built-in catalogue. */
+  customServices: string[];
+  onCreateService: (title: string) => void;
   loading: boolean;
 }) {
   const [form] = Form.useForm<TaskFormValues>();
   const isEdit = !!task;
+  const [newService, setNewService] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  // The catalogue covers the usual jobs, but no list written up front covers
+  // every fleet — anything added here joins the options straight away.
+  const serviceOptions = useMemo(() => {
+    const extra = customServices.filter((title) => !findService(title));
+    if (task?.title && !findService(task.title) && !extra.includes(task.title)) {
+      // Editing a service that was removed from the list: keep it selectable
+      // so opening the form does not silently blank the field.
+      extra.push(task.title);
+    }
+    return extra.length
+      ? [...SERVICE_OPTIONS, { label: "Added by your fleet", options: extra.map((t) => ({ value: t, label: t })) }]
+      : SERVICE_OPTIONS;
+  }, [customServices, task]);
+
+  const addService = () => {
+    const title = newService.trim();
+    if (!title) return;
+    // Already on the list — just pick it rather than making a duplicate.
+    if (!findService(title) && !customServices.includes(title)) {
+      onCreateService(title);
+    }
+    form.setFieldValue("title", title);
+    setNewService("");
+    // Adding is picking: the service is now selected, so the list has done its
+    // job and should get out of the way like any other choice would.
+    setPickerOpen(false);
+  };
+
+  const trimmedNewService = newService.trim();
+  const duplicateService =
+    trimmedNewService.length > 0 &&
+    (!!findService(trimmedNewService) ||
+      customServices.includes(trimmedNewService));
 
   const selectedEvId = Form.useWatch("evId", form);
   const isRecurring = Form.useWatch("isRecurring", form);
@@ -96,8 +144,33 @@ export default function TaskFormModal({
     }
   }, [open, task, form]);
 
+  /**
+   * Picking a service fills its usual interval in. Only when adding: on an edit
+   * the intervals on the row are the ones that contract was agreed at, and
+   * re-selecting the same service should not quietly rewrite them.
+   */
+  const handleServiceChange = (title: string) => {
+    if (isEdit) return;
+    const preset = findService(title);
+    if (!preset) return;
+    form.setFieldsValue({
+      isRecurring: preset.isRecurring,
+      intervalKm: preset.intervalKm,
+      intervalMonths: preset.intervalMonths,
+    });
+  };
+
+  /** Half-typed service names should not survive into the next open. */
+  const handleClose = () => {
+    setNewService("");
+    setPickerOpen(false);
+    onClose();
+  };
+
   const handleOk = async () => {
     const values = await form.validateFields();
+    setNewService("");
+    setPickerOpen(false);
     const payload: TaskFormPayload = {
       evId: values.evId,
       title: values.title,
@@ -114,11 +187,11 @@ export default function TaskFormModal({
 
   return (
     <Modal
-      title={isEdit ? "Edit maintenance task" : "New maintenance task"}
+      title={isEdit ? "Edit service" : "Add service"}
       open={open}
-      onCancel={onClose}
+      onCancel={handleClose}
       onOk={handleOk}
-      okText={isEdit ? "Save changes" : "Create task"}
+      okText={isEdit ? "Save changes" : "Add service"}
       confirmLoading={loading}
       destroyOnHidden
       width={520}
@@ -150,10 +223,74 @@ export default function TaskFormModal({
 
         <Form.Item
           name="title"
-          label="Title"
-          rules={[{ required: true, message: "Enter a title" }]}
+          label="Service"
+          rules={[{ required: true, message: "Select a service" }]}
         >
-          <Input placeholder="e.g. Full service, Tyre rotation" />
+          <Select
+            placeholder="Select service"
+            showSearch
+            optionFilterProp="label"
+            options={serviceOptions}
+            onChange={handleServiceChange}
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            listHeight={260}
+            popupRender={(menu) => (
+              <>
+                {menu}
+                <Divider style={{ margin: "4px 0 0" }} />
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    background: "#fafafa",
+                    borderRadius: "0 0 8px 8px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "#94a3b8",
+                      marginBottom: 6,
+                    }}
+                  >
+                    Not on the list? Add it to your fleet&apos;s services.
+                  </div>
+                  <Space.Compact style={{ width: "100%" }}>
+                    <Input
+                      placeholder="e.g. Regen braking calibration"
+                      value={newService}
+                      onChange={(e) => setNewService(e.target.value)}
+                      status={duplicateService ? "warning" : undefined}
+                      onKeyDown={(e) => {
+                        // The list treats Enter as "pick the highlighted
+                        // option"; in here it means "add what I typed".
+                        e.stopPropagation();
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addService();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="primary"
+                      icon={<Plus size={14} style={{ marginBottom: -2 }} />}
+                      disabled={!trimmedNewService}
+                      onClick={addService}
+                    >
+                      {duplicateService ? "Select" : "Add"}
+                    </Button>
+                  </Space.Compact>
+                  {duplicateService && (
+                    <div
+                      style={{ fontSize: 12, color: "#d97706", marginTop: 6 }}
+                    >
+                      Already on the list — adding will just select it.
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          />
         </Form.Item>
 
         <Form.Item name="description" label="Description">

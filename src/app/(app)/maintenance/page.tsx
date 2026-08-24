@@ -348,46 +348,50 @@ function VehicleStatusTab({
       // already says what is happening, so the verbs live behind one control.
       render: (_, row) => {
         const inService = row.status === "IN_SERVICE";
+        const SERVICE_ITEM = {
+          key: "service",
+          icon: <Wrench size={14} />,
+          label: inService ? "Edit service visit" : "Send for service",
+          onClick: () => onStartService(row),
+        };
+        const COMPLETE_ITEM = {
+          key: "complete",
+          icon: <Check size={14} />,
+          label: inService ? "Back on road — log service" : "Mark complete",
+          onClick: () => onComplete(row),
+        };
         return (
           <div onClick={(e) => e.stopPropagation()}>
             <Dropdown
               trigger={["click"]}
               placement="bottomRight"
               menu={{
+                // Once the vehicle is away, bringing it back is the act the
+                // manager comes here for — it leads, and revising the visit
+                // drops below it.
                 items: [
-                  {
-                    key: "service",
-                    icon: <Wrench size={14} />,
-                    label: inService ? "Update service visit" : "Send for service",
-                    onClick: () => onStartService(row),
-                  },
-                  {
-                    key: "complete",
-                    icon: <Check size={14} />,
-                    label: inService
-                      ? "Back on road — log service"
-                      : "Mark complete",
-                    onClick: () => onComplete(row),
-                  },
-                  { key: "d1", type: "divider" },
+                  ...(inService
+                    ? [COMPLETE_ITEM, SERVICE_ITEM]
+                    : [SERVICE_ITEM, COMPLETE_ITEM]),
+                  { key: "d1", type: "divider" as const },
                   {
                     key: "edit",
                     icon: <Pencil size={14} />,
-                    label: "Edit task",
+                    label: "Edit service",
                     onClick: () => onEdit(row),
                   },
                   {
                     key: "delete",
                     icon: <Trash2 size={14} />,
-                    label: "Delete task",
+                    label: "Remove service",
                     danger: true,
                     onClick: () =>
                       modal.confirm({
-                        title: "Delete this task?",
+                        title: "Remove this service?",
                         content: `${row.title}${
                           row.Ev?.licensePlate ? ` — ${row.Ev.licensePlate}` : ""
                         }. Anything assigned against it is closed too.`,
-                        okText: "Delete",
+                        okText: "Remove",
                         okButtonProps: { danger: true, loading: deleting },
                         onOk: () => onDelete(row),
                       }),
@@ -510,6 +514,10 @@ export default function Maintenance() {
     useState<EnrichedMaintenanceTask | null>(null);
 
   const { tasks, counts } = useMemo(() => deriveMaintenance(db), [db]);
+  const customServices = useMemo(
+    () => db.customServices.map((s) => s.title),
+    [db],
+  );
   const records = useMemo(() => deriveRecords(db), [db]);
   const vehicles = useMemo(
     () =>
@@ -545,6 +553,11 @@ export default function Maintenance() {
     [records, searchQuery],
   );
 
+  /** A job this fleet books that the built-in catalogue does not list. */
+  const handleCreateService = (title: string) => {
+    createRow("customServices", { id: nextId("customServices", "cs"), title });
+  };
+
   const handleSubmitTask = (payload: TaskFormPayload) => {
     if (editTarget) {
       updateRow("maintenanceTasks", editTarget.id, {
@@ -557,7 +570,7 @@ export default function Maintenance() {
         dueKm: payload.dueKm,
         dueDate: payload.dueDate,
       });
-      messageApi.success("Task updated");
+      messageApi.success("Service updated");
     } else {
       // Derive the first due point from the intervals when it was left blank,
       // the same way the production create endpoint does: km counts forward
@@ -580,8 +593,8 @@ export default function Maintenance() {
           : null);
       if (dueKm == null && dueDate == null) {
         messageApi.error(
-          "Task needs a due point: give a due km or date, or an interval " +
-            "(km intervals also need an odometer reading).",
+          "This service needs a due point: give a due km or date, or an " +
+            "interval (km intervals also need an odometer reading).",
         );
         return;
       }
@@ -606,7 +619,7 @@ export default function Maintenance() {
           odometerKm: payload.currentOdometerKm,
         });
       }
-      messageApi.success("Task created");
+      messageApi.success("Service added");
     }
     setTaskFormOpen(false);
     setEditTarget(null);
@@ -676,7 +689,7 @@ export default function Maintenance() {
   const handleDelete = (row: EnrichedMaintenanceTask) => {
     closeWorkOrdersForSource(row.id, "Closed automatically — task deleted");
     removeRow("maintenanceTasks", row.id);
-    messageApi.success("Task deleted");
+    messageApi.success("Service removed");
   };
 
   return (
@@ -703,7 +716,7 @@ export default function Maintenance() {
             setTaskFormOpen(true);
           }}
         >
-          New task
+          Add service
         </Button>
       </div>
 
@@ -832,6 +845,8 @@ export default function Maintenance() {
         onSubmit={handleSubmitTask}
         task={editTarget}
         vehicles={vehicles}
+        customServices={customServices}
+        onCreateService={handleCreateService}
         loading={false}
       />
 

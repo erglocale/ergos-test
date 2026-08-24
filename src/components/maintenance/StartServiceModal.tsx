@@ -65,7 +65,7 @@ export default function StartServiceModal({
 
   return (
     <Modal
-      title={isEdit ? "Update service visit" : "Send for service"}
+      title={isEdit ? "Edit service visit" : "Send for service"}
       open={open}
       onCancel={onClose}
       okText={isEdit ? "Save visit" : "Send for service"}

@@ -269,6 +269,14 @@ export interface Profile {
   timeFormat: "12" | "24";
 }
 
+// A service the fleet books that the built-in catalogue does not list. Added
+// straight from the picker, so a manager is never blocked by a list someone
+// else wrote — it joins the options for every vehicle from then on.
+export interface CustomService {
+  id: string;
+  title: string;
+}
+
 export interface Db {
   profile: Profile;
   chargepoints: Chargepoint[];
@@ -281,6 +289,7 @@ export interface Db {
   users: PortalUser[];
   wallets: Wallet[];
   suggestions: Suggestion[];
+  customServices: CustomService[];
   maintenanceTasks: MaintenanceTask[];
   maintenanceRecords: MaintenanceRecord[];
   workOrders: WorkOrder[];

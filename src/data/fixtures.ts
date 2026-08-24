@@ -15,6 +15,7 @@ import type {
   Wallet,
   WorkOrder,
 } from "./types";
+import { findService } from "./serviceCatalog";
 
 // Deterministic PRNG so the demo data is identical on every reset.
 function mulberry32(seed: number) {
@@ -843,22 +844,16 @@ export function makeFixtures(now = dayjs()): Db {
   // status pills all have data. dueKm compares against vehicle.odometerKm.
   const maintenanceTasks: MaintenanceTask[] = [];
   const maintenanceRecords: MaintenanceRecord[] = [];
-  // Jobs an electric fleet actually books: no oil, no coolant top-ups. The
-  // wear items are brakes, tyres and suspension; the drivetrain work is the
-  // pack and the high-voltage side.
-  const TASK_TEMPLATES: {
-    title: string;
-    isRecurring: boolean;
-    intervalKm: number | null;
-    intervalMonths: number | null;
-  }[] = [
-    { title: "Full service", isRecurring: true, intervalKm: 10000, intervalMonths: 6 },
-    { title: "Brake inspection", isRecurring: true, intervalKm: 5000, intervalMonths: 3 },
-    { title: "Tyre rotation", isRecurring: true, intervalKm: 8000, intervalMonths: null },
-    { title: "HV cable inspection", isRecurring: false, intervalKm: null, intervalMonths: null },
-    { title: "Battery health check", isRecurring: true, intervalKm: null, intervalMonths: 12 },
-    { title: "Wheel alignment", isRecurring: false, intervalKm: null, intervalMonths: null },
-  ];
+  // Seeded from the same catalogue the picker offers, so nothing in the demo
+  // data is a job a manager could not have booked themselves.
+  const TASK_TEMPLATES = [
+    "Full service",
+    "Brake inspection",
+    "Tyre rotation",
+    "HV cable inspection",
+    "Battery health check",
+    "Wheel alignment",
+  ].map((title) => findService(title)!);
   let taskIdx = 0;
   let recordIdx = 0;
   for (let i = 0; i < 9; i += 1) {
@@ -1201,6 +1196,7 @@ export function makeFixtures(now = dayjs()): Db {
     users,
     wallets,
     suggestions,
+    customServices: [],
     maintenanceTasks,
     maintenanceRecords,
     workOrders,
