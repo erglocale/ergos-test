@@ -32,77 +32,79 @@ function mulberry32(seed: number) {
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// The two customer fleets the demo is built around, replicated from their real
-// setup: Etash Delivery Technologies runs out of Six Mile and Azara in
-// Guwahati, Eco Mobility out of Kapashera in Delhi. Names, coordinates, charger
-// inventory and fleet composition mirror production; every telemetry value
-// below (SoC, odometer, trips, sessions, IMEIs) is dummy.
+// The two fleets the demo is built around: the delivery vans run out of
+// Bentonville and Sanger, the yard trucks out of the Fort Worth cross-dock.
+// Names, coordinates and charger inventory are the US facilities the deck
+// screenshots show; every telemetry value below (SoC, odometer, trips,
+// sessions, IMEIs) is dummy.
 const HUBS = [
   {
-    name: "Six Mile",
-    lat: 26.1299,
-    lng: 91.8092,
-    address: "GS Rd, Six Mile, Guwahati, Assam 781022",
-    city: "Guwahati",
-    state: "Assam",
-    pins: ["781022", "781006", "781038"],
-    localities: ["Six Mile", "Hatigaon Rd", "Ganeshguri", "Dispur Last Gate"],
+    name: "Bentonville",
+    lat: 36.3729,
+    lng: -94.2088,
+    address: "2501 SE 14th St, Bentonville, AR 72712",
+    city: "Bentonville",
+    state: "Arkansas",
+    pins: ["72712", "72713", "72758"],
+    localities: ["Bentonville", "SE 14th St", "Rogers", "Centerton"],
   },
   {
-    name: "Azara",
-    lat: 26.1286,
-    lng: 91.6217,
-    address: "Azara, Guwahati, Assam 781017",
-    city: "Guwahati",
-    state: "Assam",
-    pins: ["781017", "781015"],
-    localities: ["Azara", "Dharapur", "Garal Gaon"],
+    name: "Sanger",
+    lat: 33.3637,
+    lng: -97.1739,
+    address: "1200 Chapman Dr, Sanger, TX 76266",
+    city: "Sanger",
+    state: "Texas",
+    pins: ["76266", "76210"],
+    localities: ["Sanger", "Chapman Dr", "Bolivar", "Denton"],
   },
   {
-    name: "Kapashera",
-    lat: 28.5225,
-    lng: 77.0405,
-    address: "Kapashera, New Delhi 110037",
-    city: "New Delhi",
-    state: "Delhi",
-    pins: ["110037", "110097"],
-    localities: ["Kapashera", "Bijwasan", "Samalkha"],
+    name: "Fort Worth",
+    lat: 32.7555,
+    lng: -97.3308,
+    address: "13800 Independence Pkwy, Fort Worth, TX 76177",
+    city: "Fort Worth",
+    state: "Texas",
+    pins: ["76177", "76106"],
+    localities: ["Fort Worth", "Independence Pkwy", "Haslet", "Roanoke"],
   },
 ];
 
 const DRIVER_NAMES = [
-  "Ranjit Das",
-  "Pranab Kalita",
-  "Dipak Boro",
-  "Manoj Sharma",
-  "Bikash Deka",
-  "Hemanta Nath",
-  "Jitu Rabha",
-  // The last three take the Kapashera cars, so their licences and addresses
+  "Marcus Whitfield",
+  "Danny Okafor",
+  "Ray Delgado",
+  "Tyler Brennan",
+  "Andre Coleman",
+  "Luis Ferreira",
+  "Chris Vandermeer",
+  // The last three take the Fort Worth cars, so their licences and addresses
   // read as Delhi ones.
-  "Vikram Chauhan",
-  "Naresh Yadav",
-  "Sunil Kumar",
+  "Nathan Priest",
+  "Elena Vasquez",
+  "Jordan Bailey",
 ];
 
-// Etash's Piaggio/Mahindra 3W cargo fleet and Eco Mobility's MG cars, with the
-// battery sizes and SoC caps their real records carry.
+// The delivery fleet is US last-mile vans; Eco Mobility's cars are the
+// passenger side. Battery sizes and SoC caps are the ones the records they
+// replaced carried — the trip, session and report figures across the demo are
+// tuned to those numbers, so only the identity of each vehicle moved.
 const FLEET = [
-  { reg: "AS01NC4701", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
-  { reg: "AS01PC2313", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
-  { reg: "AS01QC4734", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "353691840" },
-  { reg: "AS01SC0339", make: "Mahindra Electric Mobility Ltd", model: "ZOR grand DV", category: "3W Cargo" as const, batteryKwh: 10.24, socCapPct: 90, hub: 0, imeiPrefix: "353691841" },
-  { reg: "AS01SC7409", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
-  { reg: "AS01SC7432", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 1, imeiPrefix: "350317175" },
-  { reg: "AS01SC7438", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 85, hub: 1, imeiPrefix: "350317175" },
-  { reg: "AS01SC7492", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 1, imeiPrefix: "350544507" },
-  { reg: "AS01SC7619", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
-  { reg: "AS01TC1046", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
-  { reg: "AS01TC1083", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
-  { reg: "AS01TC1084", make: "Piaggio Vehicles Pvt Ltd", model: "Ape E-Xtra FX Max", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
-  { reg: "HR55AX9090", make: "MG", model: "ZS EV EXECUTIVE", category: "4W" as const, batteryKwh: 50, socCapPct: 100, hub: 2, imeiPrefix: "353691844" },
-  { reg: "HR55AX1925", make: "MG", model: "ZS EV EXECUTIVE", category: "4W" as const, batteryKwh: 50, socCapPct: 100, hub: 2, imeiPrefix: "353691844" },
-  { reg: "HR55AX1290", make: "MG", model: "ZS EV EXECUTIVE", category: "4W" as const, batteryKwh: 50, socCapPct: 100, hub: 2, imeiPrefix: "353691844" },
+  { reg: "KJT-4701", make: "Ford", model: "E-Transit 350", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "LMR-2313", make: "Ford", model: "E-Transit 350", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "NPD-4734", make: "Ford", model: "E-Transit 350", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "353691840" },
+  { reg: "RHS-0339", make: "BrightDrop", model: "Zevo 600", category: "3W Cargo" as const, batteryKwh: 10.24, socCapPct: 90, hub: 0, imeiPrefix: "353691841" },
+  { reg: "TVC-7409", make: "Ford", model: "E-Transit 350", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "WBK-7432", make: "Ford", model: "E-Transit 350", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 1, imeiPrefix: "350317175" },
+  { reg: "XFN-7438", make: "BrightDrop", model: "Zevo 600", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 85, hub: 1, imeiPrefix: "350317175" },
+  { reg: "YDQ-7492", make: "Ford", model: "E-Transit 350", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 1, imeiPrefix: "350544507" },
+  { reg: "ZGL-7619", make: "Ford", model: "E-Transit 350", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "BCM-1046", make: "BrightDrop", model: "Zevo 600", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "DHP-1083", make: "Ford", model: "E-Transit 350", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "FJR-1084", make: "Ford", model: "E-Transit 350", category: "3W Cargo" as const, batteryKwh: 8, socCapPct: 90, hub: 0, imeiPrefix: "350317175" },
+  { reg: "8XKL909", make: "Orange EV", model: "T-Series", category: "4W" as const, batteryKwh: 50, socCapPct: 100, hub: 2, imeiPrefix: "353691844" },
+  { reg: "9BTR192", make: "Orange EV", model: "T-Series", category: "4W" as const, batteryKwh: 50, socCapPct: 100, hub: 2, imeiPrefix: "353691844" },
+  { reg: "7CVM129", make: "Orange EV", model: "T-Series", category: "4W" as const, batteryKwh: 50, socCapPct: 100, hub: 2, imeiPrefix: "353691844" },
 ];
 
 export function makeFixtures(now = dayjs()): Db {
@@ -113,24 +115,24 @@ export function makeFixtures(now = dayjs()): Db {
 
   // ---- chargepoints -------------------------------------------------------
   // The real inventory: EVRE AC001 units share 10 kW across three 3-pin sockets
-  // (~3.3 kW per port) and the HALO is a single 3 kW socket. Azara's unit is
+  // (~3.3 kW per port) and the HALO is a single 3 kW socket. Sanger's unit is
   // enabled but every socket reads Faulted — the electrical work there is still
   // pending, which is what feeds the charger-warnings page.
   // `faulted` lists individual dead sockets on an otherwise working unit — one
-  // of CP-1 Six Mile's three is out, which is the ordinary case a hub deals
+  // of CP-1 Bentonville's three is out, which is the ordinary case a hub deals
   // with and the second live row on the charger alerts page.
   //
-  // Kapashera is the exception: it charges cars, not 3W cargo, so it runs
-  // single-phase Type 2 at 32 A — 7.4 kW, the standard AC rating a car takes
-  // (a 3-pin socket physically cannot carry it).
+  // Fort Worth is the exception: it charges yard trucks, not cargo vans, so
+  // it runs the higher single-phase AC rating a terminal tractor takes rather
+  // than the shared 3.3 kW sockets the van hubs use.
   const chargepoints: Chargepoint[] = [];
   const cpSpecs = [
-    { hub: 0, name: "CP-1, Six Mile", model: "AC001", connectorCount: 3, powerKw: 3.3, connector: "3PIN" as const, allFaulted: false, faulted: [3] },
-    { hub: 0, name: "CP-2, Six Mile", model: "HALO", connectorCount: 1, powerKw: 3, connector: "3PIN" as const, allFaulted: false },
-    { hub: 0, name: "CP-3, Six Mile", model: "AC001", connectorCount: 3, powerKw: 3.3, connector: "3PIN" as const, allFaulted: false },
-    { hub: 1, name: "CP-1, Azara", model: "AC001", connectorCount: 3, powerKw: 3.3, connector: "3PIN" as const, allFaulted: true },
-    { hub: 2, name: "CP-1, Kapashera", model: "AC007", connectorCount: 1, powerKw: 7.4, connector: "Type2" as const, allFaulted: false },
-    { hub: 2, name: "CP-2, Kapashera", model: "AC007", connectorCount: 1, powerKw: 7.4, connector: "Type2" as const, allFaulted: false },
+    { hub: 0, name: "CP-1, Bentonville", model: "AC001", connectorCount: 3, powerKw: 3.3, connector: "3PIN" as const, allFaulted: false, faulted: [3] },
+    { hub: 0, name: "CP-2, Bentonville", model: "HALO", connectorCount: 1, powerKw: 3, connector: "3PIN" as const, allFaulted: false },
+    { hub: 0, name: "CP-3, Bentonville", model: "AC001", connectorCount: 3, powerKw: 3.3, connector: "3PIN" as const, allFaulted: false },
+    { hub: 1, name: "CP-1, Sanger", model: "AC001", connectorCount: 3, powerKw: 3.3, connector: "3PIN" as const, allFaulted: true },
+    { hub: 2, name: "CP-1, Fort Worth", model: "AC007", connectorCount: 1, powerKw: 7.4, connector: "Type2" as const, allFaulted: false },
+    { hub: 2, name: "CP-2, Fort Worth", model: "AC007", connectorCount: 1, powerKw: 7.4, connector: "Type2" as const, allFaulted: false },
   ];
   cpSpecs.forEach((spec, i) => {
     const hub = HUBS[spec.hub];
@@ -165,11 +167,11 @@ export function makeFixtures(now = dayjs()): Db {
   // The five vehicles nobody has checked into. Spread across the Guwahati 3W
   // fleet, never a whole site.
   const DRIVERLESS_REGS = new Set([
-    "AS01SC7438",
-    "AS01SC7492",
-    "AS01SC7619",
-    "AS01TC1046",
-    "AS01TC1083",
+    "XFN-7438",
+    "YDQ-7492",
+    "ZGL-7619",
+    "BCM-1046",
+    "DHP-1083",
   ]);
   let driverIdx = 0;
   // Plates, makes, battery sizes, SoC caps and home hubs come from the two real
@@ -181,7 +183,7 @@ export function makeFixtures(now = dayjs()): Db {
     // Who has a driver checked in. Not everyone does — those vehicles read as
     // "not in use", exactly as production does — but which ones matters: a
     // session on a vehicle with nobody assigned counts as admin charging and
-    // sits on the other tab of the sessions list. Leaving the whole Kapashera
+    // sits on the other tab of the sessions list. Leaving the whole Fort Worth
     // fleet driverless put every one of its sessions, and every outside-hub
     // charge, out of the default view.
     const driver = DRIVERLESS_REGS.has(spec.reg)
@@ -269,7 +271,7 @@ export function makeFixtures(now = dayjs()): Db {
   // top-ups of small batteries — mostly 0.4–4.5 kWh over 15 min–2.5 h, the
   // odd plug-in that draws ~nothing, stop reason almost always
   // "EVDisconnected", and no billing amounts (fleet charging is unbilled).
-  // The Kapashera cars are the exception on both counts: a 50 kWh pack on a
+  // The Fort Worth cars are the exception on both counts: a 50 kWh pack on a
   // 7.4 kW socket takes far more than a 3W top-up, so they draw up to 14 kWh.
   const maxSessionKwh = (v: Vehicle) => (v.category === "4W" ? 14 : 4.5);
   // One unit is genuinely under-delivering: it holds a vehicle for as long as
@@ -289,7 +291,7 @@ export function makeFixtures(now = dayjs()): Db {
   const availableConnector = (c: Chargepoint) =>
     pick(c.connectors.filter((cn) => cn.status === "Available"));
   // A vehicle only ever plugs in at its own hub — the two fleets are 1,800 km
-  // apart. Azara has no usable socket (the electrical work is still pending),
+  // apart. Sanger has no usable socket (the electrical work is still pending),
   // so its vans have no charging history at all, which is the real situation.
   const cpsAtHub = (list: Chargepoint[], hub: string) => list.filter((c) => c.hub === hub);
   for (let d = 14; d >= 0; d -= 1) {
@@ -339,11 +341,11 @@ export function makeFixtures(now = dayjs()): Db {
       });
     }
   }
-  // When Azara's sockets went. Fixed rather than random because both the
+  // When Sanger's sockets went. Fixed rather than random because both the
   // warning it raises and the last session before it are pinned to it — the
   // site's history has to end where the fault begins.
   const AZARA_FAULT_HOURS_AGO = 14;
-  // Azara's sockets read Faulted *now* — the warning it raises is hours old,
+  // Sanger's sockets read Faulted *now* — the warning it raises is hours old,
   // not days — so the hub has history right up to the point they failed and
   // nothing since. Without it the site reports zero sessions in every report,
   // which reads as a hub nobody uses rather than one that just went down.
@@ -351,7 +353,7 @@ export function makeFixtures(now = dayjs()): Db {
   if (azaraCp) {
     const connector = azaraCp.connectors[0];
     const azaraVehicles = vehicles.filter((v) => v.hub === azaraCp.hub);
-    // The last vehicle to charge there before the sockets went, so Azara is
+    // The last vehicle to charge there before the sockets went, so Sanger is
     // still in the recent history rather than only in the older pages.
     {
       sesId += 1;
@@ -450,7 +452,7 @@ export function makeFixtures(now = dayjs()): Db {
   // Guaranteed live sessions, so the ongoing badge, live-status card and
   // calendar always have a fixture example. One per working site rather than
   // one in total: with a single live session the Charging Sessions page only
-  // ever showed a Six Mile vehicle charging now, and the hub filter over the
+  // ever showed a Bentonville vehicle charging now, and the hub filter over the
   // live block had nothing to narrow.
   const liveCps = [usableCps[0], ...usableCps.filter((c) => c.hub === HUBS[2].name).slice(0, 1)]
     .filter((cp, i, list) => cp && list.indexOf(cp) === i);
@@ -517,15 +519,15 @@ export function makeFixtures(now = dayjs()): Db {
     // every one reads as "Outside Hub". (The tag rule still has the geekblue
     // named-public-location case production uses — nothing here triggers it.)
     // The address stays for the detail page and its map.
-    { reg: "HR55AX1290", hoursAgo: 6, kwh: 21.4, kw: 28,
+    { reg: "7CVM129", hoursAgo: 6, kwh: 21.4, kw: 28,
       spot: { address: "Ambience Mall, NH-8, Gurugram 122002", lat: 28.5045, lng: 77.0968 } },
-    { reg: "HR55AX9090", hoursAgo: 27, kwh: 24.6, kw: 30,
+    { reg: "8XKL909", hoursAgo: 27, kwh: 24.6, kw: 30,
       spot: { address: "IGI Airport T3 car park, New Delhi 110037", lat: 28.5562, lng: 77.0999 } },
-    { reg: "HR55AX1925", hoursAgo: 4 * 24 + 3, kwh: 12.9, kw: 22,
+    { reg: "9BTR192", hoursAgo: 4 * 24 + 3, kwh: 12.9, kw: 22,
       spot: { address: "Vasant Kunj Mall Road, New Delhi 110070", lat: 28.52, lng: 77.1591 } },
-    { reg: "HR55AX1290", hoursAgo: 7 * 24 + 8, kwh: 17.8, kw: 25,
+    { reg: "7CVM129", hoursAgo: 7 * 24 + 8, kwh: 17.8, kw: 25,
       spot: { address: "Dwarka Sector 21 Metro, New Delhi 110077", lat: 28.5522, lng: 77.0583 } },
-    { reg: "HR55AX9090", hoursAgo: 11 * 24 + 5, kwh: 19.2, kw: 27,
+    { reg: "8XKL909", hoursAgo: 11 * 24 + 5, kwh: 19.2, kw: 27,
       spot: { address: "Ambience Mall, NH-8, Gurugram 122002", lat: 28.5045, lng: 77.0968 } },
   ];
   for (const o of OUTSIDE_SESSIONS) {
@@ -632,7 +634,7 @@ export function makeFixtures(now = dayjs()): Db {
       // Only the 4W fleet raises this one. The 3W cargo vehicles have no fast
       // charging to repeat — the Ape and the ZOR take a 3-pin lead and charge
       // off the depot's 3.3 kW points, so they can never cross a fast-charge
-      // threshold. For the MG, 11 kW is the line between its own hub's 7.4 kW
+      // threshold. For the cars, 11 kW is the line between their hub's 7.4 kW
       // Type 2 socket and a public top-up.
       alertType: "repeated_fast_charging",
       severity: "warning",
@@ -716,7 +718,7 @@ export function makeFixtures(now = dayjs()): Db {
     }
     const faulted = cp.connectors.find((cn) => cn.status === "Faulted");
     if (faulted) {
-      // Azara's is the one with history behind it, so it keeps the fixed hour.
+      // Sanger's is the one with history behind it, so it keeps the fixed hour.
       const since = cp.hub === HUBS[1].name ? AZARA_FAULT_HOURS_AGO : int(3, 30);
       chargerWarnings.push({
         id: `cw-${chargerWarnings.length + 1}`,
@@ -753,14 +755,14 @@ export function makeFixtures(now = dayjs()): Db {
     connectorId?: number;
     offlineForHours?: number;
   }[] = [
-    // Network dropout at Six Mile that came back on its own.
-    { cpName: "CP-2, Six Mile", type: "ChargerOffline", status: "Fixed", daysAgo: 6, hourOfDay: 6, offlineForHours: 2 },
-    // Kapashera lost its uplink for most of a working day.
-    { cpName: "CP-1, Kapashera", type: "ChargerOffline", status: "Fixed", daysAgo: 4, hourOfDay: 9, offlineForHours: 9 },
+    // Network dropout at Bentonville that came back on its own.
+    { cpName: "CP-2, Bentonville", type: "ChargerOffline", status: "Fixed", daysAgo: 6, hourOfDay: 6, offlineForHours: 2 },
+    // Fort Worth lost its uplink for most of a working day.
+    { cpName: "CP-1, Fort Worth", type: "ChargerOffline", status: "Fixed", daysAgo: 4, hourOfDay: 9, offlineForHours: 9 },
     // A socket that faulted and recovered — worth watching, not dispatching.
-    { cpName: "CP-2, Kapashera", type: "ConnectorFaulted", status: "Fixed", daysAgo: 3, hourOfDay: 21, connectorId: 1 },
+    { cpName: "CP-2, Fort Worth", type: "ConnectorFaulted", status: "Fixed", daysAgo: 3, hourOfDay: 21, connectorId: 1 },
     // Known intermittent latch on CP-3, being monitored rather than swapped.
-    { cpName: "CP-3, Six Mile", type: "ConnectorFaulted", status: "Ignore", daysAgo: 2, hourOfDay: 15, connectorId: 2 },
+    { cpName: "CP-3, Bentonville", type: "ConnectorFaulted", status: "Ignore", daysAgo: 2, hourOfDay: 15, connectorId: 2 },
   ];
   for (const w of pastWarnings) {
     const cp = chargepoints.find((c) => c.name === w.cpName);
@@ -793,17 +795,17 @@ export function makeFixtures(now = dayjs()): Db {
 
   // ---- portal users + wallets --------------------------------------------
   const users: PortalUser[] = [
-    { name: "Aarav Mehta", role: "Admin" as const, status: "Active" as const },
-    { name: "Priya Sharma", role: "Fleet Manager" as const, status: "Active" as const },
-    { name: "Rohan Barua", role: "Fleet Manager" as const, status: "Active" as const },
-    { name: "Sneha Dutta", role: "Viewer" as const, status: "Active" as const },
-    { name: "Vikram Singh", role: "Viewer" as const, status: "Invited" as const },
-    { name: "Nilim Hazarika", role: "Fleet Manager" as const, status: "Disabled" as const },
+    { name: "Alex Reyes", role: "Admin" as const, status: "Active" as const },
+    { name: "Dana Whitlock", role: "Fleet Manager" as const, status: "Active" as const },
+    { name: "Martin Cole", role: "Fleet Manager" as const, status: "Active" as const },
+    { name: "Sarah Lindquist", role: "Viewer" as const, status: "Active" as const },
+    { name: "Peter Nowak", role: "Viewer" as const, status: "Invited" as const },
+    { name: "Gail Hutchins", role: "Fleet Manager" as const, status: "Disabled" as const },
     // Technicians are who the work actually gets assigned to: one per site, so
     // a fault at any hub has someone local to send.
-    { name: "Ravi Kalita", role: "Technician" as const, status: "Active" as const },
-    { name: "Imran Ali", role: "Technician" as const, status: "Active" as const },
-    { name: "Deepak Nath", role: "Technician" as const, status: "Active" as const },
+    { name: "Curtis Whitaker", role: "Technician" as const, status: "Active" as const },
+    { name: "Marco Silva", role: "Technician" as const, status: "Active" as const },
+    { name: "Dwayne Ellis", role: "Technician" as const, status: "Active" as const },
   ].map((u, i) => ({
     id: `usr-${i + 1}`,
     name: u.name,
@@ -849,7 +851,7 @@ export function makeFixtures(now = dayjs()): Db {
   const TASK_TEMPLATES = [
     "Full service",
     "Brake inspection",
-    "Tyre rotation",
+    "Tire rotation",
     "HV cable inspection",
     "Battery health check",
     "Wheel alignment",
@@ -978,8 +980,8 @@ export function makeFixtures(now = dayjs()): Db {
     });
   };
 
-  // Azara's whole unit is down pending electrical work, so that is the one
-  // already dispatched. Six Mile's single dead socket is deliberately left
+  // Sanger's whole unit is down pending electrical work, so that is the one
+  // already dispatched. Bentonville's single dead socket is deliberately left
   // unassigned — the board needs a live fault to hand out during the demo.
   const openFaults = chargerWarnings.filter(
     (w) => w.warningObject.type === "ConnectorFaulted" && w.warningObject.status === "New",

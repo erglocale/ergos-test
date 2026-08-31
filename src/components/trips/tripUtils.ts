@@ -20,8 +20,8 @@ export function getDurationString(startIso: string, endIso: string): string {
 
 // Fixture trips have no addresses — derive deterministic locality addresses
 // from the trip id so the table/detail views stay stable. Which city depends on
-// the plate: Etash runs on AS01 plates in Guwahati, Eco Mobility on HR55 plates
-// out of Kapashera in Delhi.
+// the plate: the delivery vans run out of Guwahati on letter-led plates, Eco
+// Mobility's cars out of Kapashera in Delhi on number-led ones.
 const PLACES = [
   "GS Rd, Six Mile, Guwahati, Assam 781022",
   "Azara, NH17, Guwahati, Assam 781017",
@@ -52,7 +52,7 @@ function hashId(id: string): number {
 
 export function tripAddresses(trip: Trip): { startAddress: string; endAddress: string } {
   const h = hashId(trip.id);
-  const places = /^HR/i.test(trip.vehicleReg ?? "") ? DELHI_PLACES : PLACES;
+  const places = /^\d/.test(trip.vehicleReg ?? "") ? DELHI_PLACES : PLACES;
   const start = places[h % places.length];
   const end = places[(h + 3) % places.length];
   return { startAddress: start, endAddress: end };

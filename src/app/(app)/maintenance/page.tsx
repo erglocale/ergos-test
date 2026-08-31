@@ -60,7 +60,6 @@ import {
 } from "@/components/workOrders/workOrderUtils";
 import {
   createRow,
-  isEnergyBrainVehicle,
   nextId,
   removeRow,
   updateRow,
@@ -184,12 +183,10 @@ function Pill({ meta }: { meta: { label: string; color: string; bg: string } }) 
 
 function VehicleCell({ ev }: { ev: MaintenanceEv | null }) {
   if (!ev) return "—";
-  // Model only for the fixture fleet, as on the dashboard: the manufacturer's
-  // legal name ("Piaggio Vehicles Pvt Ltd") is three times the width of the
-  // thing that identifies the van. energy-brain names its own and is left be.
-  const subtitle = isEnergyBrainVehicle(ev.id)
-    ? [ev.make, ev.model].filter(Boolean).join(" ")
-    : ev.model;
+  // Make and model, as on the dashboard. The fixture fleet used to show the
+  // model alone because the manufacturers' legal names ("Piaggio Vehicles Pvt
+  // Ltd") were three times the width of the thing that identifies the van.
+  const subtitle = [ev.make, ev.model].filter(Boolean).join(" ");
   return (
     <Link href={`/vehicles/${ev.id}`} style={{ color: "inherit" }}>
       <div style={{ fontWeight: 600, color: "#1e293b" }}>
@@ -211,11 +208,11 @@ const WORK_PRIORITY: Record<DueStatus, WorkOrderPriority> = {
   UNKNOWN: "Low",
 };
 
-/** "every 10,000 km", "every 6 months", or nothing for a one-off task. */
+/** "every 10,000 mi", "every 6 months", or nothing for a one-off task. */
 function recurrenceLabel(task: EnrichedMaintenanceTask): string {
   if (!task.isRecurring) return "";
   const parts = [
-    task.intervalKm != null ? `${task.intervalKm.toLocaleString()} km` : null,
+    task.intervalKm != null ? `${task.intervalKm.toLocaleString()} mi` : null,
     task.intervalMonths != null
       ? `${task.intervalMonths} ${task.intervalMonths === 1 ? "month" : "months"}`
       : null,
@@ -224,7 +221,7 @@ function recurrenceLabel(task: EnrichedMaintenanceTask): string {
 }
 
 const formatKm = (value: number | null | undefined) =>
-  value != null ? `${Math.round(Number(value)).toLocaleString()} km` : null;
+  value != null ? `${Math.round(Number(value)).toLocaleString()} mi` : null;
 
 function VehicleStatusTab({
   tasks,
@@ -267,7 +264,7 @@ function VehicleStatusTab({
       },
     },
     {
-      title: "Due (km)",
+      title: "Due (mi)",
       key: "dueKm",
       render: (_, row) => {
         if (row.dueKm == null) return "—";
@@ -283,7 +280,7 @@ function VehicleStatusTab({
             >
               {row.kmRemaining == null
                 ? row.telemetryStale
-                  ? "km estimate unavailable"
+                  ? "mileage estimate unavailable"
                   : "no odometer reading"
                 : over
                   ? `${formatKm(-row.kmRemaining)} over`
@@ -476,7 +473,8 @@ function HistoryTab({
       title: "Cost",
       dataIndex: "cost",
       key: "cost",
-      render: (value) => (value != null ? Number(value).toLocaleString() : "—"),
+      render: (value) =>
+        value != null ? "$" + Number(value).toLocaleString() : "—",
     },
     {
       title: "Notes",
@@ -573,8 +571,9 @@ export default function Maintenance() {
       messageApi.success("Service updated");
     } else {
       // Derive the first due point from the intervals when it was left blank,
-      // the same way the production create endpoint does: km counts forward
-      // from the odometer anchor, the date from today. A km interval on a
+      // the same way the production create endpoint does: mileage counts
+      // forward from the odometer anchor, the date from today. A mileage
+      // interval on a
       // vehicle with no reading yet stays underived — there is nothing to
       // count from.
       const anchorKm =
@@ -593,8 +592,8 @@ export default function Maintenance() {
           : null);
       if (dueKm == null && dueDate == null) {
         messageApi.error(
-          "This service needs a due point: give a due km or date, or an " +
-            "interval (km intervals also need an odometer reading).",
+          "This service needs a due point: give a due mileage or date, or " +
+            "an interval (mileage intervals also need an odometer reading).",
         );
         return;
       }

@@ -25,7 +25,16 @@ import type { CollectionKey, Db, Profile } from "./types";
 // v25: maintenance dropped the OEM/fleet task type and the garage/vendor
 //      fields, and the seeded task list lost its non-EV job (coolant top-up).
 //      Existing rows are not migrated field by field, so the key has to move.
-const DB_KEY = "ergos-test:db:v25";
+// v26: the demo fleet reads as a US operation — Ford E-Transit / BrightDrop
+//      Zevo vans and Tesla cars on US plates, with US names on the drivers and
+//      portal users. Plates are the key half the fixtures cross-reference, so
+//      a stored db from before this would point at vehicles that no longer
+//      exist.
+// v27: US hubs (Bentonville / Sanger / Fort Worth), Orange EV yard trucks in
+//      place of the Tesla cars, and "Tire rotation" in the seeded task list.
+//      Hub names and plates are cross-referenced by the fixtures, so a stored
+//      db from before this would point at hubs and vehicles that are gone.
+const DB_KEY = "ergos-test:db:v27";
 
 let cache: Db | null = null;
 // Live rows from energy-brain, merged (not persisted) on top of the fixtures.

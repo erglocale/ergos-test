@@ -99,15 +99,15 @@ export default function CompleteTaskModal({
           </Form.Item>
           <Form.Item
             name="odometerKm"
-            label="Odometer (km)"
+            label="Odometer (mi)"
             style={{ flex: 1 }}
-            tooltip="Reading at service time — keeps km tracking calibrated"
+            tooltip="Reading at service time — keeps mileage tracking calibrated"
           >
             <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
         </div>
 
-        <Form.Item name="cost" label="Cost">
+        <Form.Item name="cost" label="Cost ($)">
           <InputNumber min={0} style={{ width: "100%" }} placeholder="0.00" />
         </Form.Item>
 

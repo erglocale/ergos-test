@@ -23,7 +23,7 @@ import {
 
 const { Text } = Typography;
 
-/** "Ravi Kalita" -> "Ravi K." so the chip fits in a table cell. */
+/** "Curtis Whitaker" -> "Curtis W." so the chip fits in a table cell. */
 function shortName(name: string): string {
   const [first, ...rest] = name.split(" ");
   return rest.length ? `${first} ${rest[rest.length - 1][0]}.` : first;

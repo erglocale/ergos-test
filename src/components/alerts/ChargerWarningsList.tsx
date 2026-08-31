@@ -56,10 +56,12 @@ const WORK_PRIORITY: Record<WarnSeverity, WorkOrderPriority> = {
 // detail, so the title only has to say what is being sent out.
 const WORK_TITLE: Record<WarnType, string> = {
   "Connector faulted": "Repair faulted connector",
+  "Voltage / ground fault": "Electrical fault — isolate and inspect",
   "Communication lost": "Restore charger communication",
   "Session interrupted": "Investigate interrupted session",
   "Throughput degraded": "Check supply voltage and cabling",
-  "Predicted fault": "Inspect connector latch before it fails",
+  "Reboot loop": "Stabilise charger firmware",
+  "Connector lock degrading": "Inspect connector latch before it fails",
 };
 
 export default function ChargerWarnings() {
@@ -92,8 +94,15 @@ export default function ChargerWarnings() {
   }
 
   const allRows = useMemo(
-    () => buildChargerWarningRows(db.chargerWarnings, db.chargepoints, db.sessions),
-    [db.chargerWarnings, db.chargepoints, db.sessions],
+    () =>
+      buildChargerWarningRows({
+        chargepoints: db.chargepoints,
+        sessions: db.sessions,
+        chargerWarnings: db.chargerWarnings,
+        vehicles: db.vehicles,
+        workOrders: db.workOrders,
+      }),
+    [db.chargerWarnings, db.chargepoints, db.sessions, db.vehicles, db.workOrders],
   );
 
   const hubOptions = useMemo(

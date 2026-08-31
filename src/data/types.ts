@@ -241,7 +241,7 @@ export interface WorkOrder {
   source: WorkOrderSource;
   /** ChargerWarningRow.id / MaintenanceTask.id, or null when raised by hand. */
   sourceId: string | null;
-  /** What the work is on: "CP-2, Kapashera" or "HR55AX1290". */
+  /** What the work is on: "CP-2, Fort Worth" or "9BTR192". */
   subject: string;
   /** Deep link to the subject, when there is one. */
   subjectHref: string | null;

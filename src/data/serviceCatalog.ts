@@ -27,20 +27,22 @@ export const SERVICE_CATALOG: ServiceCatalogEntry[] = [
   // ---- wear items ----------------------------------------------------------
   { title: "Brake inspection", group: "Wear items", isRecurring: true, intervalKm: 5000, intervalMonths: 3 },
   { title: "Brake pad replacement", group: "Wear items", isRecurring: true, intervalKm: 20000, intervalMonths: null },
-  { title: "Tyre rotation", group: "Wear items", isRecurring: true, intervalKm: 8000, intervalMonths: null },
-  { title: "Tyre replacement", group: "Wear items", isRecurring: false, intervalKm: null, intervalMonths: null },
+  { title: "Tire rotation", group: "Wear items", isRecurring: true, intervalKm: 6000, intervalMonths: null },
+  { title: "Tire replacement", group: "Wear items", isRecurring: false, intervalKm: null, intervalMonths: null },
   { title: "Wheel alignment", group: "Wear items", isRecurring: false, intervalKm: null, intervalMonths: null },
   { title: "Suspension check", group: "Wear items", isRecurring: true, intervalKm: 20000, intervalMonths: null },
 
   // ---- the electric side ---------------------------------------------------
   { title: "Battery health check", group: "Battery & drivetrain", isRecurring: true, intervalKm: null, intervalMonths: 12 },
+  { title: "Battery coolant service", group: "Battery & drivetrain", isRecurring: true, intervalKm: null, intervalMonths: 24 },
   { title: "HV cable inspection", group: "Battery & drivetrain", isRecurring: false, intervalKm: null, intervalMonths: null },
+  { title: "12V battery check", group: "Battery & drivetrain", isRecurring: true, intervalKm: null, intervalMonths: 12 },
   { title: "Charging port inspection", group: "Battery & drivetrain", isRecurring: true, intervalKm: null, intervalMonths: 6 },
   { title: "Motor & drivetrain check", group: "Battery & drivetrain", isRecurring: true, intervalKm: 15000, intervalMonths: 12 },
 
   // ---- cabin and body ------------------------------------------------------
   { title: "Cabin air filter replacement", group: "Cabin & body", isRecurring: true, intervalKm: null, intervalMonths: 12 },
-  { title: "AC service", group: "Cabin & body", isRecurring: true, intervalKm: null, intervalMonths: 12 },
+  { title: "HVAC service", group: "Cabin & body", isRecurring: true, intervalKm: null, intervalMonths: 12 },
   { title: "Lights & wiper check", group: "Cabin & body", isRecurring: true, intervalKm: null, intervalMonths: 3 },
   { title: "Body / panel repair", group: "Cabin & body", isRecurring: false, intervalKm: null, intervalMonths: null },
 ];

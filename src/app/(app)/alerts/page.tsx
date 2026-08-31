@@ -4,6 +4,7 @@ import { Badge, Tabs, Typography } from "antd";
 import dayjs from "dayjs";
 import { useMemo } from "react";
 import ChargerWarnings from "@/components/alerts/ChargerWarningsList";
+import { buildChargerWarningRows } from "@/components/alerts/chargerWarningRows";
 import VehicleWarnings from "@/components/alerts/VehicleWarningsList";
 import { useDb } from "@/data/store";
 
@@ -12,15 +13,19 @@ const { Title } = Typography;
 export default function Alerts() {
   const db = useDb();
 
-  // Replica of useChargersWarnings({ status: 'New', startDate: subDays(2), endDate: now })
+  // Replica of useChargersWarnings({ status: 'New', startDate: subDays(2), endDate: now }),
+  // counted off the same detectors the tab itself renders so the badge can
+  // never disagree with the table underneath it.
   const chargerWarningsCount = useMemo(() => {
     const start = dayjs().subtract(2, "day");
-    return db.chargerWarnings.filter(
-      (w) =>
-        w.warningObject.status === "New" &&
-        !dayjs(w.warningObject.createdAt).isBefore(start),
-    ).length;
-  }, [db.chargerWarnings]);
+    return buildChargerWarningRows({
+      chargepoints: db.chargepoints,
+      sessions: db.sessions,
+      chargerWarnings: db.chargerWarnings,
+      vehicles: db.vehicles,
+      workOrders: db.workOrders,
+    }).filter((r) => r.status === "Active" && !dayjs(r.triggeredAt).isBefore(start)).length;
+  }, [db.chargepoints, db.sessions, db.chargerWarnings, db.vehicles, db.workOrders]);
 
   return (
     <div style={{ padding: "0 16px" }}>

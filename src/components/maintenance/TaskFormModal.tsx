@@ -308,7 +308,7 @@ export default function TaskFormModal({
 
         {isRecurring && (
           <div style={{ display: "flex", gap: 12 }}>
-            <Form.Item name="intervalKm" label="Every (km)" style={{ flex: 1 }}>
+            <Form.Item name="intervalKm" label="Every (mi)" style={{ flex: 1 }}>
               <InputNumber
                 min={1}
                 style={{ width: "100%" }}
@@ -332,11 +332,11 @@ export default function TaskFormModal({
         <div style={{ display: "flex", gap: 12 }}>
           <Form.Item
             name="dueKm"
-            label="Due at (km)"
+            label="Due at (mi)"
             style={{ flex: 1 }}
             tooltip={
               isRecurring
-                ? "Leave empty to derive from the km interval and the current odometer"
+                ? "Leave empty to derive from the mileage interval and the current odometer"
                 : "Odometer reading at which this task is due"
             }
           >
@@ -363,13 +363,13 @@ export default function TaskFormModal({
         {!isEdit && (
           <Form.Item
             name="currentOdometerKm"
-            label="Current odometer (km)"
-            tooltip="Used as the starting point for km tracking — distance driven is added automatically from telematics"
+            label="Current odometer (mi)"
+            tooltip="Used as the starting point for mileage tracking — distance driven is added automatically from telematics"
             extra={
               selectedEvId
                 ? hasAnchor
-                  ? `Known reading: ~${Number(odometerInfo!.currentKm).toLocaleString()} km — enter a value only to recalibrate`
-                  : "No odometer reading recorded for this vehicle yet — required for km-based tracking"
+                  ? `Known reading: ~${Number(odometerInfo!.currentKm).toLocaleString()} mi — enter a value only to recalibrate`
+                  : "No odometer reading recorded for this vehicle yet — required for mileage-based tracking"
                 : null
             }
           >
