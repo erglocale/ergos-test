@@ -15,7 +15,11 @@ import type { TableProps } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ConfirmAcceptDialog from "@/components/suggestions/ConfirmAcceptDialog";
 import type { CapRow, NudgeRow } from "@/components/suggestions/derive";
-import { deriveCapRows, deriveNudges } from "@/components/suggestions/derive";
+import {
+  deriveCapRows,
+  deriveNudges,
+  kwhSavedPerYear,
+} from "@/components/suggestions/derive";
 import {
   ANALYTICS_API,
   fetchGroups,
@@ -173,11 +177,14 @@ function CapTab({
     setAcceptTarget(null);
   };
 
+  // Equal widths so the gaps between columns match
+  const COL_WIDTH = 200;
   const capColumns: TableProps<CapRow>["columns"] = [
     {
       title: "Vehicle",
       dataIndex: "label",
       key: "label",
+      width: COL_WIDTH,
       render: (label: string, row) => (
         <span style={{ fontWeight: 600 }}>{label || `EV ${row.evId}`}</span>
       ),
@@ -185,6 +192,7 @@ function CapTab({
     {
       title: "Suggested SOC cap",
       key: "cap",
+      width: COL_WIDTH,
       render: (_v, row) =>
         row.socLimit?.suggested_cap != null ? (
           <span style={{ fontWeight: 600, color: ORANGE }}>
@@ -195,10 +203,26 @@ function CapTab({
         ),
     },
     {
+      title: "Saved / year",
+      key: "saved",
+      width: COL_WIDTH,
+      render: (_v, row) =>
+        row.kwhSavedPerYear ? (
+          <Tooltip title="Energy kept out of the battery each year vs charging to 100%">
+            <span style={{ fontWeight: 600 }}>
+              {row.kwhSavedPerYear.toLocaleString("en-IN")} kWh
+            </span>
+          </Tooltip>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
+    },
+    {
       // How much driving the cap was learned from — the same band the
       // analytics Suggestions table shows for the row it published.
       title: "Confidence",
       key: "confidence",
+      width: COL_WIDTH,
       render: (_v, row) => (
         <Tooltip
           title={
@@ -216,6 +240,7 @@ function CapTab({
     {
       title: "Last updated",
       key: "updated",
+      width: COL_WIDTH,
       render: (_v, row) => (
         <Tooltip
           title={
@@ -233,6 +258,7 @@ function CapTab({
     {
       title: "",
       key: "accept",
+      width: 100,
       align: "right",
       render: (_v, row) =>
         row.socLimit?.suggested_cap != null ? (
@@ -356,7 +382,16 @@ export default function Suggestions() {
   const demoCapRows = useMemo(() => deriveCapRows(db), [db]);
 
   const nudges = live ? liveNudges : demoNudges;
-  const capRows = live ? liveCaps : demoCapRows;
+  // Battery size comes from the matching sandbox vehicle, for live rows too.
+  const capRows = useMemo(() => {
+    const batteryByPlate = new Map(
+      db.vehicles.map((v) => [normalizePlate(v.reg), v.batteryKwh]),
+    );
+    return (live ? liveCaps : demoCapRows).map((r) => ({
+      ...r,
+      kwhSavedPerYear: kwhSavedPerYear(r, batteryByPlate.get(normalizePlate(r.label))),
+    }));
+  }, [live, liveCaps, demoCapRows, db.vehicles]);
 
   const applySuggestion = (row: CapRow) => {
     const cap = row.socLimit?.suggested_cap;

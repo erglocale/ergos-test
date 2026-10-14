@@ -1,222 +1,225 @@
 "use client";
 
-// Charger warnings (demo spec item 8): severity-led layout — total + severity
-// chips, a warning-type breakdown, and a table where every row carries a
-// recommended action. Predicted faults sit alongside real ones; they come from
-// the same health model the charger Overview tab uses.
+// Replica of prod's Components/Home/ChargerAlertsList.jsx: raised as soon as a charger reports a
+// problem, closed as soon as it stops. Recurring faults are closed by hand from the ⋯ menu.
 
-import { Card, DatePicker, Input, Select, Table, Tag, Typography } from "antd";
+import {
+  Button,
+  Card,
+  DatePicker,
+  Dropdown,
+  Empty,
+  Input,
+  Select,
+  Table,
+  Tag,
+  Tooltip,
+  Typography,
+} from "antd";
 import type { TableProps } from "antd";
 import dayjs from "dayjs";
-import localizedFormat from "dayjs/plugin/localizedFormat";
-import relativeTime from "dayjs/plugin/relativeTime";
+import { Ellipsis } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { rangePresets } from "@/components/home/FleetAndChargerHostLayout";
 import WorkOrderCell from "@/components/workOrders/WorkOrderCell";
 import { useDb } from "@/data/store";
-import {
-  type ChargerWarningRow,
-  SEVERITY_DOT_COLOR,
-  SEVERITY_TAG_COLOR,
-  TYPE_BAR_COLOR,
-  type WarnSeverity,
-  type WarnStatus,
-  type WarnType,
-  buildChargerWarningRows,
-} from "./chargerWarningRows";
-import type { WorkOrderPriority } from "@/data/types";
-import WarningBreakdown, { type BreakdownRow } from "./WarningBreakdown";
+import type { DetectedAlertType } from "@/lib/ocppDetectors";
+import { message, modal } from "@/lib/antdStatic";
+import { fmtDateTime } from "./alertUtils";
 import { DATE_FORMAT } from "@/lib/dateFormat";
-
-dayjs.extend(relativeTime);
-dayjs.extend(localizedFormat);
+import { resolveChargerAlert, useResolvedChargerAlerts } from "./chargerAlertResolutions";
+import {
+  CHARGER_ALERT_TYPES,
+  type ChargerWarningRow,
+  alertTypeLabel,
+  buildChargerWarningRows,
+  connectorLabel,
+} from "./chargerWarningRows";
+import WarningBreakdown, { type BreakdownRow } from "./WarningBreakdown";
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
 const { Search } = Input;
 
-const STATUS_TAG_COLOR: Record<WarnStatus, string> = {
-  Active: "red",
-  Watching: "blue",
-  Resolved: "green",
-};
+const PAGE_SIZE = 10;
 
-const SEVERITY_ORDER: WarnSeverity[] = ["Critical", "Warning", "Predicted"];
+type AlertState = "all" | "open" | "resolved";
 
-// How urgent the work is when a warning is handed to someone. A prediction is
-// real work but not today's work, so it starts a rung below a live fault.
-const WORK_PRIORITY: Record<WarnSeverity, WorkOrderPriority> = {
-  Critical: "Critical",
-  Warning: "High",
-  Predicted: "Medium",
-};
-
-// The job, phrased as an instruction. The row's recommended action carries the
-// detail, so the title only has to say what is being sent out.
-const WORK_TITLE: Record<WarnType, string> = {
-  "Connector faulted": "Repair faulted connector",
-  "Voltage / ground fault": "Electrical fault — isolate and inspect",
-  "Communication lost": "Restore charger communication",
-  "Session interrupted": "Investigate interrupted session",
-  "Throughput degraded": "Check supply voltage and cabling",
-  "Reboot loop": "Stabilise charger firmware",
-  "Connector lock degrading": "Inspect connector latch before it fails",
-};
-
-export default function ChargerWarnings() {
-  const router = useRouter();
+/** The charger alert rows the tab and its badge both read, with resolutions applied. */
+export function useChargerAlertRows(): ChargerWarningRow[] {
   const db = useDb();
-  const [currentPageNumber, setCurrentPageNumber] = useState(1);
-  const [startDate, setStartDate] = useState(() =>
-    dayjs().subtract(10, "day").startOf("day").toISOString(),
-  );
-  const [endDate, setEndDate] = useState(() => dayjs().toISOString());
-  const [limit] = useState(10);
-  const [statusFilter, setStatusFilter] = useState<"All" | WarnStatus>("All");
-  const [severityFilter, setSeverityFilter] = useState<"All" | WarnSeverity>("All");
-  const [hubFilter, setHubFilter] = useState<string | null>(null);
-  const [searchText, setSearchText] = useState("");
-  const [debouncedSearchText, setDebouncedSearchText] = useState("");
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchText(searchText);
-      setCurrentPageNumber(1);
-    }, 700);
-    return () => clearTimeout(timer);
-  }, [searchText]);
-
-  /** Any filter change puts the table back on page 1. */
-  function applyFilter(change: () => void) {
-    change();
-    setCurrentPageNumber(1);
-  }
-
-  const allRows = useMemo(
+  const resolved = useResolvedChargerAlerts();
+  return useMemo(
     () =>
       buildChargerWarningRows({
         chargepoints: db.chargepoints,
         sessions: db.sessions,
         chargerWarnings: db.chargerWarnings,
-        vehicles: db.vehicles,
-        workOrders: db.workOrders,
+        resolved,
       }),
-    [db.chargerWarnings, db.chargepoints, db.sessions, db.vehicles, db.workOrders],
+    [db.chargepoints, db.sessions, db.chargerWarnings, resolved],
   );
+}
 
-  const hubOptions = useMemo(
-    () => Array.from(new Set(db.chargepoints.map((c) => c.hub))).sort(),
-    [db.chargepoints],
+// Local replica of Components/HubManagement/HubFilter — hubs derived from the dummy store.
+function HubFilter({
+  value,
+  onChange,
+  style,
+}: {
+  value: string | null;
+  onChange: (hub: string | null) => void;
+  style?: React.CSSProperties;
+}) {
+  const db = useDb();
+  const hubs = useMemo(
+    () =>
+      Array.from(
+        new Set([...db.vehicles.map((v) => v.hub), ...db.chargepoints.map((c) => c.hub)]),
+      ).sort(),
+    [db.vehicles, db.chargepoints],
   );
+  return (
+    <Select
+      allowClear
+      showSearch
+      placeholder="Hub"
+      value={value || undefined}
+      onChange={(v) => onChange(v || null)}
+      optionFilterProp="label"
+      style={style}
+      options={hubs.map((h) => ({ label: h, value: h }))}
+    />
+  );
+}
 
-  const rows = useMemo(() => {
-    const start = dayjs(startDate).startOf("day");
+export default function ChargerWarnings() {
+  const router = useRouter();
+  const allRows = useChargerAlertRows();
+  const [startDate, setStartDate] = useState(() =>
+    dayjs().subtract(7, "day").startOf("day").toISOString(),
+  );
+  const [endDate, setEndDate] = useState(() => dayjs().toISOString());
+  const [hubLocationId, setHubLocationId] = useState<string | null>(null);
+  const [type, setType] = useState<"All" | DetectedAlertType>("All");
+  // Opens on everything, so alerts marked resolved stay in view
+  const [state, setState] = useState<AlertState>("all");
+  const [searchText, setSearchText] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchText);
+      setPage(1);
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  /** Any filter change puts the table back on page 1. */
+  const applyFilter = (change: () => void) => {
+    change();
+    setPage(1);
+  };
+
+  const alerts = useMemo(() => {
+    const start = dayjs(startDate);
+    // The whole end day counts, so an alert raised after the page opened still shows
     const end = dayjs(endDate).endOf("day");
-    const search = debouncedSearchText.trim().toLowerCase();
+    const q = search.trim().toLowerCase();
     return allRows.filter((r) => {
-      const t = dayjs(r.triggeredAt);
+      const t = dayjs(r.raisedAt);
       if (t.isBefore(start) || t.isAfter(end)) return false;
-      if (statusFilter !== "All" && r.status !== statusFilter) return false;
-      if (severityFilter !== "All" && r.severity !== severityFilter) return false;
-      if (hubFilter && r.hub !== hubFilter) return false;
+      if (state === "open" && r.resolvedAt) return false;
+      if (state === "resolved" && !r.resolvedAt) return false;
+      if (type !== "All" && r.type !== type) return false;
+      if (hubLocationId && r.hub !== hubLocationId) return false;
       if (
-        search &&
-        !r.chargerName.toLowerCase().includes(search) &&
-        !r.chargerId.toLowerCase().includes(search) &&
-        !r.type.toLowerCase().includes(search)
+        q &&
+        ![r.chargerName, r.chargerId, r.errorCode ?? "", r.message].some((s) =>
+          s.toLowerCase().includes(q),
+        )
       )
         return false;
       return true;
     });
-  }, [allRows, startDate, endDate, statusFilter, severityFilter, hubFilter, debouncedSearchText]);
+  }, [allRows, startDate, endDate, state, type, hubLocationId, search]);
 
-  const { severities, breakdown } = useMemo(() => {
-    const sev: Record<WarnSeverity, number> = { Critical: 0, Warning: 0, Predicted: 0 };
-    const types = new Map<string, number>();
-    for (const r of rows) {
-      sev[r.severity] += 1;
-      types.set(r.type, (types.get(r.type) ?? 0) + 1);
-    }
-    const bars: BreakdownRow[] = Array.from(types.entries())
-      .map(([label, count]) => ({
-        label,
+  const breakdown = useMemo<BreakdownRow[]>(() => {
+    const counts = new Map<DetectedAlertType, number>();
+    alerts.forEach((a) => counts.set(a.type, (counts.get(a.type) ?? 0) + 1));
+    return Array.from(counts.entries())
+      .map(([key, count]) => ({
+        label: alertTypeLabel(key),
         count,
-        color: TYPE_BAR_COLOR[label as keyof typeof TYPE_BAR_COLOR] ?? "#9ca3af",
+        color: CHARGER_ALERT_TYPES[key]?.color ?? "#9ca3af",
       }))
       .sort((a, b) => b.count - a.count);
-    return {
-      severities: SEVERITY_ORDER.map((s) => ({
-        label: s,
-        count: sev[s],
-        color: SEVERITY_DOT_COLOR[s],
-      })),
-      breakdown: bars,
-    };
-  }, [rows]);
+  }, [alerts]);
+
+  const askToResolve = (r: ChargerWarningRow) =>
+    modal.confirm({
+      title: "Mark this alert as resolved?",
+      content: r.message,
+      okText: "Mark as resolved",
+      onOk: () => {
+        resolveChargerAlert(r);
+        message.success("Alert marked as resolved");
+      },
+    });
 
   const columns: TableProps<ChargerWarningRow>["columns"] = [
     {
       title: "Charger",
       key: "charger",
-      width: 200,
+      width: 170,
       render: (_, r) => (
         <div
-          style={{ cursor: "pointer" }}
+          style={{ cursor: "pointer", lineHeight: 1.35 }}
           onClick={() => router.push(`/chargingStations/${r.chargerId}`)}
         >
-          <Text strong ellipsis={{ tooltip: r.chargerName }}>
+          <Text strong style={{ fontSize: 13 }}>
             {r.chargerName}
           </Text>
-          <br />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {r.chargerId}
-          </Text>
-          <br />
-          <Text type="secondary" style={{ fontSize: 11 }} ellipsis={{ tooltip: r.address }}>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {connectorLabel(r.connectorId)}
+            </Text>
+          </div>
+          <Text type="secondary" style={{ fontSize: 11 }}>
             {r.hub}
           </Text>
         </div>
       ),
     },
     {
-      title: "Severity",
-      key: "severity",
-      width: 110,
-      render: (_, r) => <Tag color={SEVERITY_TAG_COLOR[r.severity]}>{r.severity}</Tag>,
-    },
-    {
-      title: "Details",
-      key: "details",
-      width: 300,
+      title: "Alert",
+      key: "alert",
       render: (_, r) => (
-        <div>
-          <div style={{ fontSize: 13 }}>{r.details}</div>
-          <div
-            style={{
-              fontFamily: "var(--font-geist-mono, ui-monospace, monospace)",
-              fontSize: 11,
-              color: "#9ca3af",
-              marginTop: 2,
-            }}
-          >
-            {r.code}
+        <div style={{ lineHeight: 1.35 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Text style={{ fontSize: 12, color: "#64748b" }}>{alertTypeLabel(r.type)}</Text>
+            {r.severity === "Critical" && <Tag color="red">Critical</Tag>}
           </div>
+          <div style={{ fontSize: 13, whiteSpace: "normal" }}>{r.message}</div>
+          {r.errorCode && (
+            <Text style={{ fontFamily: "monospace", fontSize: 11, color: "#9ca3af" }}>
+              {r.errorCode}
+            </Text>
+          )}
         </div>
       ),
     },
     {
-      title: "Recommended Action",
+      title: "What to do",
       key: "action",
-      width: 280,
-      // Assigning the work sits with the action it carries out, rather than in
-      // a column of its own off the right edge of the table.
+      width: 240,
       render: (_, r) => (
-        <div>
-          <Text style={{ color: "#0d9488", fontSize: 13 }} ellipsis={{ tooltip: r.action }}>
-            {r.action}
-          </Text>
-          <div style={{ marginTop: 2 }}>
+        <div style={{ lineHeight: 1.35 }}>
+          <Text style={{ color: "#0d9488", fontSize: 13 }}>{r.action}</Text>
+          <div style={{ marginTop: 4 }}>
             <WorkOrderCell
               prefill={{
                 source: "CHARGER_WARNING",
@@ -224,9 +227,9 @@ export default function ChargerWarnings() {
                 subject: r.chargerName,
                 subjectHref: `/chargingStations/${r.chargerId}`,
                 hub: r.hub,
-                title: WORK_TITLE[r.type],
+                title: CHARGER_ALERT_TYPES[r.type]?.workTitle ?? "",
                 details: r.action,
-                priority: WORK_PRIORITY[r.severity],
+                priority: "High",
               }}
               inline
             />
@@ -236,24 +239,40 @@ export default function ChargerWarnings() {
     },
     {
       title: "Triggered",
-      key: "triggered",
-      width: 150,
-      sorter: (a, b) => dayjs(a.triggeredAt).valueOf() - dayjs(b.triggeredAt).valueOf(),
+      key: "raisedAt",
+      width: 130,
       render: (_, r) => (
-        <div style={{ fontSize: 13 }}>
-          {dayjs(r.triggeredAt).format("DD MMM YYYY")}
-          <br />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {dayjs(r.triggeredAt).format("hh:mm A")}
-          </Text>
+        <div style={{ lineHeight: 1.35 }}>
+          <Text style={{ fontSize: 12 }}>{fmtDateTime(r.raisedAt)}</Text>
+          <div style={{ marginTop: 4 }}>
+            {r.resolvedAt ? (
+              <Tooltip title={`Resolved ${fmtDateTime(r.resolvedAt)}`}>
+                <Tag color="green">Resolved</Tag>
+              </Tooltip>
+            ) : (
+              <Tag color="red">Active</Tag>
+            )}
+          </div>
         </div>
       ),
     },
     {
-      title: "Status",
-      key: "status",
-      width: 110,
-      render: (_, r) => <Tag color={STATUS_TAG_COLOR[r.status]}>{r.status}</Tag>,
+      title: "",
+      key: "actions",
+      width: 48,
+      align: "center",
+      render: (_, r) =>
+        r.resolvedAt ? null : (
+          <Dropdown
+            trigger={["click"]}
+            menu={{
+              items: [{ key: "resolve", label: "Mark as resolved" }],
+              onClick: () => askToResolve(r),
+            }}
+          >
+            <Button type="text" size="small" icon={<Ellipsis style={{ width: 16 }} />} />
+          </Dropdown>
+        ),
     },
   ];
 
@@ -264,9 +283,9 @@ export default function ChargerWarnings() {
         style={{ marginBottom: 16 }}
       >
         <RangePicker
-          style={{ width: 340 }}
           presets={rangePresets}
           value={[dayjs(startDate), dayjs(endDate)]}
+          style={{ width: 340 }}
           onChange={(value) => {
             if (value && value[0] && value[1]) {
               applyFilter(() => {
@@ -279,50 +298,51 @@ export default function ChargerWarnings() {
           allowClear={false}
         />
 
+        <HubFilter
+          value={hubLocationId}
+          onChange={(v) => applyFilter(() => setHubLocationId(v))}
+          style={{ width: 140, minWidth: 140 }}
+        />
+
         <Search
-          placeholder="Search charger name or ID..."
+          placeholder="Search charger, error code..."
           allowClear
           onChange={(e) => setSearchText(e.target.value)}
           style={{ minWidth: 240, flex: 1 }}
         />
 
         <Select
-          allowClear
-          placeholder="Hub: All"
-          style={{ minWidth: 160 }}
-          value={hubFilter || undefined}
-          onChange={(v: string | undefined) => applyFilter(() => setHubFilter(v || null))}
-          options={hubOptions.map((h) => ({ label: h, value: h }))}
-        />
-
-        <Select
-          style={{ minWidth: 150 }}
-          value={severityFilter}
-          onChange={(v) => applyFilter(() => setSeverityFilter(v))}
+          style={{ minWidth: 190 }}
+          value={type}
+          onChange={(v) => applyFilter(() => setType(v))}
           options={[
-            { label: "Severity: All", value: "All" },
-            ...SEVERITY_ORDER.map((s) => ({ label: s, value: s })),
+            { label: "All alert types", value: "All" },
+            ...Object.entries(CHARGER_ALERT_TYPES).map(([value, t]) => ({
+              label: t.label,
+              value: value as DetectedAlertType,
+            })),
           ]}
         />
 
         <Select
-          style={{ minWidth: 150 }}
-          value={statusFilter}
-          onChange={(v) => applyFilter(() => setStatusFilter(v))}
+          style={{ minWidth: 140 }}
+          value={state}
+          onChange={(v) => applyFilter(() => setState(v))}
           options={[
-            { label: "Status: All", value: "All" },
-            { label: "Active", value: "Active" },
-            { label: "Watching", value: "Watching" },
-            { label: "Resolved", value: "Resolved" },
+            { label: "All Statuses", value: "all" },
+            { label: "Active", value: "open" },
+            { label: "Resolved", value: "resolved" },
           ]}
         />
       </div>
 
       <WarningBreakdown
-        totalLabel="Total warnings"
-        total={rows.length}
-        severities={severities}
+        totalLabel="Total Alerts"
+        total={alerts.length}
+        severities={[]}
+        note="Raised as soon as a charger reports a problem, closed as soon as it stops."
         rows={breakdown}
+        breakdownLabel="Alert Type Breakdown"
       />
 
       <Card
@@ -338,20 +358,34 @@ export default function ChargerWarnings() {
       >
         <Table<ChargerWarningRow>
           columns={columns}
-          dataSource={rows}
+          dataSource={alerts}
           rowKey="id"
           pagination={{
-            pageSize: limit,
-            total: rows.length,
-            current: currentPageNumber,
-            onChange: (page) => setCurrentPageNumber(page),
-            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} warnings`,
+            current: page,
+            pageSize,
+            total: alerts.length,
+            showSizeChanger: true,
+            pageSizeOptions: ["10", "20", "50", "100"],
+            onChange: (nextPage, nextSize) => {
+              setPage(nextSize !== pageSize ? 1 : nextPage);
+              setPageSize(nextSize);
+            },
+            showTotal: (count, range) => `${range[0]}-${range[1]} of ${count} alerts`,
             placement: ["bottomCenter"],
           }}
-          // Rows scroll inside the card, header pinned — same as the vehicle
-          // alerts table, so the two tabs behave identically.
-          scroll={{ x: "max-content", y: "min(58vh, 560px)" }}
           bordered={false}
+          locale={{
+            emptyText: (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  state === "open"
+                    ? "No alerts. Every charger is reporting normally."
+                    : "No alerts for these filters"
+                }
+              />
+            ),
+          }}
           rowClassName={() => "custom-table-row"}
           className="styled-warnings-table"
         />

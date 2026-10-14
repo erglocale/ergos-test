@@ -47,12 +47,15 @@ export default function WarningBreakdown({
   severities,
   rows,
   breakdownLabel = "Warning type breakdown",
+  note,
 }: {
   totalLabel: string;
   total: number;
   severities: SeverityChip[];
   rows: BreakdownRow[];
   breakdownLabel?: string;
+  /** Shown under the total instead of severity chips. */
+  note?: string;
 }) {
   // Bars are scaled to the largest type so a single dominant type doesn't
   // squash the rest into invisibility.
@@ -76,6 +79,11 @@ export default function WarningBreakdown({
               <Chip key={s.label} {...s} />
             ))}
           </div>
+          {note && (
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {note}
+            </Text>
+          )}
         </Card>
       </Col>
 

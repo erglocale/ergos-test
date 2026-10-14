@@ -265,6 +265,25 @@ function CapDetail({
               Lowest safe cap {sl.lowest_safe_cap}%
               {cap?.operating_days ? ` · ${cap.operating_days} days seen` : ""}
             </Text>
+            {record.kwhSavedPerYear ? (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                }}
+              >
+                <div style={{ fontSize: 18, fontWeight: 700, color: GREEN }}>
+                  ~{record.kwhSavedPerYear.toLocaleString("en-IN")} kWh saved / year
+                </div>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Energy kept out of the battery vs charging to 100%, based on{" "}
+                  {cap?.operating_days} driving days scaled to a year.
+                </Text>
+              </div>
+            ) : null}
             <div style={{ marginTop: 14 }}>
               <Button
                 type="primary"

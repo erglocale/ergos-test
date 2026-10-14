@@ -48,6 +48,7 @@ export interface CapRow {
   computedAt: string;
   confidence: CapConfidence;
   socLimit: { suggested_cap: number; lowest_safe_cap: number } | null;
+  kwhSavedPerYear?: number | null;
   details: {
     cap: {
       sweep: CapSweepPoint[];
@@ -56,6 +57,20 @@ export interface CapRow {
       operating_days: number;
     };
   };
+}
+
+/** kWh a year the suggested cap keeps out of the battery vs charging to 100%: one charge per operating day, scaled to a year. */
+export function kwhSavedPerYear(
+  row: CapRow,
+  batteryKwh: number | null | undefined,
+): number | null {
+  const cap = row.socLimit?.suggested_cap;
+  const opDays = row.details?.cap?.operating_days;
+  if (cap == null || !batteryKwh || !opDays || !row.windowFrom || !row.windowTo) return null;
+  const windowDays = dayjs(row.windowTo).diff(dayjs(row.windowFrom), "day") + 1;
+  if (windowDays <= 0) return null;
+  const chargesPerYear = (Math.min(opDays, windowDays) / windowDays) * 365;
+  return Math.round(batteryKwh * ((100 - cap) / 100) * chargesPerYear);
 }
 
 function hash(s: string): number {
